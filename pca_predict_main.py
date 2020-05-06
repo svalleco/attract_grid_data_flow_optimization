@@ -162,7 +162,12 @@ def plot_differences():
 	'''
 
 def dump_whole_matrices():
-
+	'''
+	This does 3 things in the following order:
+		-> Reads the distance and demotion matrices from raw files and parses them into dictionarie
+		-> Generates a minimal viable set of clients and storage elements.
+		-> Generates the set of whole matrices.
+	'''
 	def get_distance_matrix_per_week(time_interval, matrices_folder):
 		distance_list = list()
 		for fn in os.listdir(matrices_folder):
@@ -358,6 +363,10 @@ def dump_whole_matrices():
 	)
 
 def get_pca_of_the_matrices():
+	'''
+	Runs on the output of "dump_whole_matrices".
+	Produces the principal components of the matrices and dumps only the top 80%.
+	'''
 	week_0_list, week_1_list, week_2_list = pickle.load(open('whole_matrices.p','rb'))
 
 	if False:
@@ -506,6 +515,10 @@ def get_read_size_per_time_moment_for_cern():
 	)
 
 def get_read_size_per_proc_1(i):
+	'''
+	Works on a portion of the unanswered queries.
+	Returns a dictionary object of time_tag -> total_read_size.
+	'''
 	d = dict()
 	for tm , rs in\
 		map(
@@ -524,6 +537,10 @@ def get_read_size_per_proc_1(i):
 	return d
 
 def get_read_size_from_all_queries():
+	'''
+	Sets up data for transfer getting the dictionary of time_tag -> read_size for
+	each of the three weeks.
+	'''
 	def get_rs_per_week(input_file_name):
 		global file_variable, g_idexes_pairs_tuple
 
@@ -582,7 +599,9 @@ def get_read_size_from_all_queries():
 	)
 
 def generate_throughput_trend_train():
-
+	'''
+	Puts whole matrices, average read size and throughput together based on time tags.
+	'''
 	thp_iterable_tuple = (
 		get_thp('january_month_throughput.csv',WEEK_TIME_MOMENTS[0]),
 		get_thp('february_month.csv',WEEK_TIME_MOMENTS[1]),
@@ -626,80 +645,6 @@ def generate_throughput_trend_train():
 			PCA_DUMP_FOLDER + data_set_file,
 			'wb'
 		)
-	)
-
-def get_normalized_values_per_week(data_set_file):
-	week_0_list, week_1_list, week_2_list = pickle.load(open(
-		PCA_DUMP_FOLDER + data_set_file, 'rb'
-	))
-
-	# print('inside norm func: '\
-	# 	+ str(len(week_0_list)) + ' '\
-	# 	+ str(len(week_0_list[0]))
-	# )
-	# print('inside norm func: '\
-	# 	+ str( week_0_list[0] )
-	# )
-
-	min_thp = max_thp = week_0_list[0][1]
-
-	min_rs = max_rs = week_0_list[0][2]
-
-	min_comp = min(week_0_list[0][3])
-
-	max_comp = max(week_0_list[0][3])
-
-	def get_min_max(value, min_a, max_a, is_iterable_flag=False):
-		if is_iterable_flag:
-			a, b = min(value), max(value)
-			return\
-				(
-					a if a < min_a else min_a,
-					b if b > max_a else max_a,
-				)
-		return (
-			value if value < min_a else min_a,
-			value if value > max_a else max_a,
-		)
-
-	for _ , thp_val, avg_rs, pca_comp_list in itertools.chain(week_0_list,week_1_list,week_2_list):
-		min_thp, max_thp = get_min_max(thp_val, min_thp, max_thp,)
-		min_rs, max_rs = get_min_max(avg_rs, min_rs, max_rs,)
-		min_comp, max_comp = get_min_max(pca_comp_list, min_comp, max_comp, True)
-
-	process_data_list=lambda l:\
-	list(
-		map(
-			lambda p:\
-				[2*(p[2]-min_rs)/(max_rs-min_rs)-1,]\
-				+ list(
-					map(
-						lambda e: 2*(e-min_comp)/(max_comp-min_comp)-1,
-						p[3]
-					)
-				)\
-				+ [(p[1]-min_thp)/(max_thp-min_thp),],
-			l
-		)
-	)
-	# process_data_list=lambda l:\
-	# list(
-	# 	map(
-	# 		lambda p:\
-	# 			list(
-	# 				map(
-	# 					lambda e: 2*(e-min_comp)/(max_comp-min_comp)-1,
-	# 					p[3]
-	# 				)
-	# 			)\
-	# 			+ [(p[1]-min_thp)/(max_thp-min_thp),],
-	# 		l
-	# 	)
-	# )
-	return (\
-		process_data_list(week_0_list),\
-		process_data_list(week_1_list),\
-		process_data_list(week_2_list)
 	)
 
 def normalize_and_split_data_set(data_set_file,time_window):
@@ -852,120 +797,6 @@ def normalize_and_split_data_set(data_set_file,time_window):
 			np.array(train_y_list),\
 			np.array(valid_x_list),\
 			np.array(valid_y_list)
-
-def normalize_and_split_data_set_1(data_set_file,time_window,max_overlap_length):
-
-	bins_list = get_normalized_values_per_week(data_set_file)
-
-	# print(\
-	# 	'bins_list normalization: '\
-	# 	+ str(len(bins_list)) + ' '\
-	# 	+ str(len(bins_list[0])) + ' '\
-	# 	+ str(len(bins_list[1])) + ' '\
-	# )
-
-	new_bin_list = list()
-
-	i = 0
-	for b_list in bins_list:
-
-		for j in range(len(b_list)-time_window):
-
-			new_bin_list.append(list())
-
-			for l in range( j , j + time_window , 1 ):
-
-				new_bin_list[-1].append(list())
-
-				for e in b_list[ l ]:
-					new_bin_list[-1][-1].append(e)
-
-			i+=1
-
-	bins_list = new_bin_list
-
-	print('bins_list after time seq transform: '\
-		+ str(len(bins_list)) + ' '\
-		+ str(len(bins_list[0])) + ' '\
-		+ str(len(bins_list[0][0])) + ' '\
-	)
-
-	new_bin_list = list()
-
-	last_appended_example_index = 0
-
-	new_bin_list.append(bins_list[0])
-
-	for ind , example in zip(
-		range(1,len(bins_list)),
-		bins_list[1:]):
-
-		if time_window - ind + last_appended_example_index <= max_overlap_length:
-
-			last_appended_example_index = ind
-
-			new_bin_list.append( example )
-
-	bins_list = new_bin_list
-
-	valid_indexes_list = random.sample(
-		range( len( bins_list ) ),
-		round( 0.2 * len( bins_list ) ),
-	)
-	train_indexes_list = tuple(filter(
-		lambda i: i not in valid_indexes_list,range(len( bins_list ))))
-
-	get_x_f = lambda indexes_l:\
-	list(
-		map(
-			lambda p:\
-				list(
-					map(
-						lambda e: e[:-1],
-						p[1]
-					)
-				),
-			filter(
-				lambda p: p[0] in indexes_l,
-				enumerate(bins_list)
-			)
-		)
-	)
-	get_y_f = lambda indexes_l:\
-	list(
-		map(
-			lambda p:\
-				list(
-					map(
-						lambda e: [e[-1],],
-						p[1]
-					)
-				),
-			filter(
-				lambda p: p[0] in indexes_l,
-				enumerate(bins_list)
-			)
-		)
-	)
-
-	train_x_list, train_y_list, valid_x_list, valid_y_list =\
-		get_x_f(train_indexes_list),\
-		get_y_f(train_indexes_list),\
-		get_x_f(valid_indexes_list),\
-		get_y_f(valid_indexes_list)
-
-	get_lens_f=lambda l: str(len(l)) + ' ' + str(len(l[0])) + ' ' + str(len(l[0][0]))
-
-	print(get_lens_f(train_x_list))
-	print(get_lens_f(train_y_list))
-	print(get_lens_f(valid_x_list))
-	print(get_lens_f(valid_y_list))
-
-	return\
-		np.array(train_x_list),\
-		np.array(train_y_list),\
-		np.array(valid_x_list),\
-		np.array(valid_y_list)
 
 def get_model_1(ws, bins_no, small_net_flag, lstm_at_end):
 	inp_layer = keras.layers.Input(shape=(ws, bins_no,))
@@ -2568,22 +2399,29 @@ def dump_nn_results(aaaaa):
 					print()
 
 def dump_nn_results_0(gpu_string):
-	with tf.device(gpu_string):
-		with tf.compat.v1.Session() as sess:
-			# with tf.Session() as sess:
+	# with tf.device(gpu_string):
+	# 	# with tf.compat.v1.Session() as sess:
+	# 	with tf.Session() as sess:
 
-			# tf.compat.v1.keras.backend.set_session(sess)
-			K.set_session(sess)
+	# 		# tf.compat.v1.keras.backend.set_session(sess)
+	# 		K.set_session(sess)
 
-			for ind in gpu_task_dict[gpu_string]:
-			# for ind in (303,):
+	# 		for ind in gpu_task_dict[gpu_string]:
+	if True:
+		if True:
+			for ind in (304,):
 
 				best_valid_tuple = get_best_valid_index_model( ind )
 
+				# model = keras.models.load_model(
+				# 	'pca_multiple_model_folders/'\
+				# 	+ 'models_' + str(ind) + '/'\
+				# 	+ get_models_name_on_index( best_valid_tuple[0] )
+				# )
+
 				model = keras.models.load_model(
 					'pca_multiple_model_folders/'\
-					+ 'models_' + str(ind) + '/'\
-					+ get_models_name_on_index( best_valid_tuple[0] )
+					+ 'models_304/model_0318.hdf5'
 				)
 
 				input_shape = model.layers[0].output_shape[0]
@@ -2693,8 +2531,10 @@ def dump_nn_results_0(gpu_string):
 								index_data_set_dict[ind].x_all_weeks,
 								index_data_set_dict[ind].y_all_weeks,
 							),
+						# 'best_model_performance' :\
+						# 	best_valid_tuple[2],
 						'best_model_performance' :\
-							best_valid_tuple[2],
+							'318,6.942901716419845,0.026840016,7.137319571097857,0.024455104',
 						'per_week_predictions' :\
 							predict_list,
 						'validation_predictions' :\
@@ -2718,7 +2558,10 @@ def dump_results_main():
 	index_to_valid_dict,index_to_x_y_per_week_dict,x_y_per_week_dict,valid_set_dict,\
 		x_y_whole_dict = dict(), dict(), dict(), dict(), dict()
 
-	bins_list = get_normalized_values_per_week('complete_data_set_top_80.p')
+	if False:
+		bins_list = get_normalized_values_per_week('complete_data_set_top_80.p')
+	if True:
+		bins_list = get_normalized_values_per_week('tm_tren_ars_pc_per_week_4_may.p')
 
 	if False:
 		# best dense: 206
@@ -2820,7 +2663,7 @@ def dump_results_main():
 				x_y_per_week_dict[ 'overlap_39' ][1],
 			)
 
-		a, b = pickle.load(open( './pca_data_sets/5.p' , 'rb' ))[2][2:]
+		a, b = pickle.load(open( './pca_data_sets/6.p' , 'rb' ))['train_valid_data_sets'][2:]
 		valid_set_dict[ 'overlap_39' ] =\
 			reorder_valid_in_temporal_order(
 				x_y_whole_dict[ 'overlap_39' ][0],
@@ -2829,8 +2672,7 @@ def dump_results_main():
 				transform_array_only_last(b),
 			)[:2]
 
-		# index_to_valid_dict[ 289 ] = 'overlap_39'
-		index_to_valid_dict[ 303 ] = 'overlap_39'
+		index_to_valid_dict[ 304 ] = 'overlap_39'
 
 		index_to_x_y_per_week_dict.update( index_to_valid_dict )
 
@@ -2856,7 +2698,7 @@ def dump_results_main():
 
 # Start: Set up of available GPUs
 
-	gpu_tuple = ('/gpu:1','/gpu:2',)
+	gpu_tuple = ('/gpu:2',)
 
 # End: Set up of available GPUS
 	global gpu_task_dict
@@ -3118,8 +2960,20 @@ def train_main_1():
 	# new_index = 303
 	#	recurrent network with sigmoid activation and ReLU internal and only
 	#	one output
+	# 	17000 data set
 
-	new_index = 302
+	# new_index = 304
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 6th may
+
+	# new_index = 305
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 6th may
+	#   only ars and PC1 as input
+
+	new_index = 305
 
 	def get_model_2(ws, bins_no):
 		inp_layer = keras.layers.Input(shape=(ws, bins_no,))
@@ -3130,6 +2984,7 @@ def train_main_1():
 			)
 		)(inp_layer)
 		x = keras.layers.BatchNormalization()(x)
+		# x = keras.layers.Dropout(0.01)(x)
 
 		x = keras.layers.Bidirectional(
 			keras.layers.LSTM(
@@ -3167,7 +3022,33 @@ def train_main_1():
 
 		return keras.models.Model(inputs=inp_layer, outputs=x)
 
-	data_set = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
+	def get_model_3(ws, bins_no):
+		inp_layer = keras.layers.Input(shape=(ws, bins_no,))
+		x = keras.layers.TimeDistributed(
+			keras.layers.Dense(
+				units=bins_no,
+				activation='relu'
+			)
+		)(inp_layer)
+		x = keras.layers.BatchNormalization()(x)
+		# x = keras.layers.Dropout(0.01)(x)
+
+		x = keras.layers.Bidirectional(
+			keras.layers.LSTM(
+				units=bins_no,
+				return_sequences=False,
+			)
+		)(x)
+		x = keras.layers.BatchNormalization()(x)
+
+		x = keras.layers.Dense(units=1, activation='sigmoid')(x)
+
+		return keras.models.Model(inputs=inp_layer, outputs=x)
+
+	if False:
+		data_set = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
+	if True:
+		data_set = pickle.load(open('./pca_data_sets/6.p','rb'))['train_valid_data_sets']
 
 	if True:
 		data_set =\
@@ -3177,7 +3058,7 @@ def train_main_1():
 			data_set[2],
 			transform_array_only_last(data_set[3]),
 		)
-	if True:
+	if False:
 		data_set =\
 		(
 			data_set[0][:,:,1:],
@@ -3185,10 +3066,18 @@ def train_main_1():
 			data_set[2][:,:,1:],
 			data_set[3],
 		)
+	if True:
+		data_set =\
+		(
+			data_set[0][:,:,:4],
+			data_set[1],
+			data_set[2][:,:,:4],
+			data_set[3],
+		)
 
-	model = get_model_2(
+	model = get_model_3(
 		40,
-		11,
+		4,
 	)
 
 	model.compile(
@@ -3198,9 +3087,14 @@ def train_main_1():
 	)
 
 	if False:
-		old_model = keras.models.load_model(
-			'./pca_multiple_model_folders/models_283/model_0488.hdf5'
-		)
+		if False:
+			old_model_path = './pca_multiple_model_folders/models_283/model_0488.hdf5'
+		if False:
+			old_model_path = './pca_multiple_model_folders/models_303/model_0672.hdf5'
+		if True:
+			old_model_path = './pca_multiple_model_folders/models_304/model_0318.hdf5'
+
+		old_model = keras.models.load_model(old_model_path)
 
 		new_model_layers = list()
 		for i in range( len( model.layers ) ):
@@ -3235,23 +3129,24 @@ def train_main_1():
 				data_set[2],
 				data_set[3],
 			),
-			# callbacks=[
-			# 	keras.callbacks.CSVLogger(
-			# 		'./pca_csv_folder/losses_'\
-			# 		+ str( new_index ) + '.csv'
-			# 	),
-			# 	keras.callbacks.ModelCheckpoint(
-			# 		'pca_multiple_model_folders/'\
-			# 			+ 'models_' + str(new_index) + '/'\
-			# 			+ "model_{epoch:04d}.hdf5",
-			# 		monitor='val_loss',
-			# 		save_best_only=True
-			# 	),
-			# 	keras.callbacks.EarlyStopping(
-			# 		monitor='val_loss',
-			# 		patience=125,
-			# 	)
-			# ]
+			verbose=2,
+			callbacks=[
+				keras.callbacks.CSVLogger(
+					'./pca_csv_folder/losses_'\
+					+ str( new_index ) + '.csv'
+				),
+				keras.callbacks.ModelCheckpoint(
+					'pca_multiple_model_folders/'\
+						+ 'models_' + str(new_index) + '/'\
+						+ "model_{epoch:04d}.hdf5",
+					monitor='val_loss',
+					save_best_only=True
+				),
+				keras.callbacks.EarlyStopping(
+					monitor='val_loss',
+					patience=125,
+				)
+			]
 		)
 
 def test_reordering():
@@ -3459,9 +3354,9 @@ if __name__ == '__main__':
 
 	# train_main()
 
-	train_main_1()
+	# train_main_1()
 
-	# dump_results_main()
+	dump_results_main()
 
 	# test_reordering()
 
