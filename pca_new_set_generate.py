@@ -16,25 +16,43 @@ from collections import namedtuple
 import itertools
 from pca_utils import *
 
+'''
+MATRIXES_FOLDER_LIST
+	This is a tuple of folder local paths where the raw matrices files are located on skylake 07
+	and Minsky NFS system.
+
+WEEK_TIME_MOMENTS
+	This is a tuple of time intervals for each week.
+
+UNANSWERED_PATH_TUPLE
+	This is a tuple for the unanswered queries which see CERN as a viable option per week.
+
+PCA_DUMP_FOLDER
+	This is a folder path where various pipeline results are dumped for the PCA method.
+
+RAW_QUERY_FILES
+	This is a tuple containing the path to the CSV files containing the raw query files per week.
+'''
+
 MATRIXES_FOLDER_LIST = (\
 	'./matrices_folder/remote_host_0/log_folder/',\
 	'./matrices_folder/remote_host_1/log_folder/',\
 	'./matrices_folder/remote_host_1/log_folder/',\
 )
 
-WEEK_TIME_MOMENTS = (\
-	(1579215600000, 1579875041000),\
-	(1580511600000, 1581289199000),\
-	(1581289200000, 1581980399000),\
-)
-
-# vvvv     Third week is shortened     vvvv
-# vvvv                                 vvvv
 # WEEK_TIME_MOMENTS = (\
 # 	(1579215600000, 1579875041000),\
 # 	(1580511600000, 1581289199000),\
-# 	(1581289200000, 1581670035995),\
+# 	(1581289200000, 1581980399000),\
 # )
+
+# vvvv     Third week is shortened     vvvv
+# vvvv                                 vvvv
+WEEK_TIME_MOMENTS = (\
+	(1579215600000, 1579875041000),\
+	(1580511600000, 1581289199000),\
+	(1581289200000, 1581670035995),\
+)
 
 UNANSWERED_PATH_TUPLE = (\
 	'/data/mipopa/unanswered_query_dump_folder_0/',\
@@ -51,6 +69,9 @@ RAW_QUERY_FILES = (\
 )
 
 def dump_new_set():
+	'''
+	This associates trend, average read size, demotion and distance matrices based on time tags.
+	'''
 
 	# Set up throughput
 	thp_iterable_tuple = (
@@ -71,7 +92,7 @@ def dump_new_set():
 				lambda time_tag: ( time_tag , extraction_f( time_tag , folder_name )  ),\
 				sorted(\
 					filter(\
-						lambda t: time_moments[0] <= t < time_moments[1],\
+						lambda t: time_moments[0] - 25200000 <= t < time_moments[1] + 25200000,\
 						map(\
 							lambda fn: int( fn.split('_')[0] ),\
 							filter(\
@@ -102,20 +123,6 @@ def dump_new_set():
 	)
 	print('Finished distance matrices set up !')
 
-	# Distance and Demotion Correction - TO DO
-	# new_dist_per_week_list, new_dem_per_week_list = list(), list()
-	# for old_dist_tuple, old_dem_tuple in zip( distance_iterable_tuple , demotion_iterable_tuple ):
-	# 	if old_dist_tuple[0][0] < old_dem_tuple[0][0]:
-	# 		ind = 0
-	# 		while old_dist_tuple[ind][0] <= old_dem_tuple[0][0]: ind+=1
-	# 		ind -= 1
-
-	# 		if old_dist_tuple[ind][0] == old_dem_tuple[0][0]:
-	# 			new_dist_tuple = old_dist_tuple[ ind ][0]
-	# 			new_dem_tuple = old_dem_tuple
-	# 		else:
-	# 			pass
-
 	data_set_list = list()
 
 	for i in range(3):
@@ -135,10 +142,15 @@ def dump_new_set():
 
 	pickle.dump(
 		data_set_list,
-		open( PCA_DUMP_FOLDER + 'tm_thp_ars_dist_dem_per_week_4_may.p' , 'wb' )
+		open( PCA_DUMP_FOLDER + 'tm_thp_ars_dist_dem_per_week_6_may.p' , 'wb' )
 	)
 
 def get_whole_matrixes():
+	'''
+	Adds the distance and demotion matrices together.
+	Creates a minimal set of storage elements and a minimal set of clients that are present
+		in all the distance and demotion matrices (the matrices are stored as Python dictionaries).
+	'''
 	data_set_list = list()
 
 	for week_list in pickle.load(open(PCA_DUMP_FOLDER + 'tm_thp_ars_dist_dem_per_week_4_may.p','rb')):
@@ -197,10 +209,13 @@ def get_whole_matrixes():
 
 	pickle.dump(
 		new_data_set,
-		open( PCA_DUMP_FOLDER + 'tm_thp_ars_whole_per_week_4_may.p' , 'wb' )
+		open( PCA_DUMP_FOLDER + 'tm_thp_ars_whole_per_week_6_may.p' , 'wb' )
 	)
 
 def get_principal_components():
+	'''
+	This dumps some statistics on the difference in elements and the principal components.
+	'''
 	data_set_list = pickle.load(open(PCA_DUMP_FOLDER + 'tm_thp_ars_whole_per_week_4_may.p','rb'))
 
 	# print( len( data_set_list[0][0][-1] ) )
@@ -234,7 +249,7 @@ def get_principal_components():
 			)
 		)
 
-	if True:
+	if False:
 		dump_cell_diff(whole_matrix_array)
 
 	pca_engine = PCA(20)
@@ -245,11 +260,69 @@ def get_principal_components():
 
 	print(pca_engine.explained_variance_ratio_.cumsum())
 
-	if True:
+	if False:
 		dump_cell_diff(
 			pca_engine.transform( whole_matrix_array )[:,:11],
 			'pipe_pc_cell_diff_4_may.p'
 		)
+
+	new_data_set = list()
+	for week_list in data_set_list:
+
+		new_week_list = list()
+
+		for p in zip( week_list , pca_engine.transform( np.array( list(map(lambda e: e[-1], week_list) ) ) ) ):
+
+			new_week_list.append(
+				(
+					p[0][0],
+					p[0][1],
+					p[0][2],
+					list( p[1] ),
+				)
+			)
+
+		new_data_set.append( new_week_list )
+
+	# pickle.dump(
+	# 	new_data_set,
+	# 	open(
+	# 		PCA_DUMP_FOLDER + 'tm_tren_ars_pc_per_week_4_may.p',
+	# 		'wb'
+	# 	)
+	# )
+
+def generate_data_set():
+	'''
+	Does normalization and dumps
+	'''
+
+	indsexes, a = normalize_and_split_data_set_1(
+		'tm_tren_ars_pc_per_week_4_may.p',
+		40,
+		39,
+		True
+	)
+	a,b,c,d = a
+
+
+	pickle.dump(
+		{
+			'train_valid_data_sets':\
+				(
+					a,
+					b,
+					c,
+					d,
+				),
+			'train_valid_indexes':\
+				indsexes,\
+		},
+		open(
+			'./pca_data_sets/6.p',
+			'wb'
+		)
+	)
 
 def analyse_main_0():
 	get_time_tags_f = lambda time_moments , keyword , folder_name : sorted(\
@@ -281,7 +354,8 @@ def analyse_main_0():
 if __name__ == '__main__':
 
 	# dump_new_set()
-
 	# analyse_main_0()
-
+	# get_whole_matrixes()
 	get_principal_components()
+
+	# generate_data_set()
