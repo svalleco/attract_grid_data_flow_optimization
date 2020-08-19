@@ -5,12 +5,12 @@ import pickle
 from functools import reduce
 import pickle
 import json
-# import numpy as np
-# from scipy import interpolate
+import numpy as np
+from scipy import interpolate
 from functools import reduce
 import random
 import matplotlib.pyplot as plt
-# from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.seasonal import seasonal_decompose
 
 def generator_iterate(iterable):
 	'''
@@ -125,6 +125,9 @@ def get_matrices(first_moment, last_moment):
 	return dist_res_list, dem_res_list
 
 def answer_per_proc_0(i):
+	'''
+	Answers queries per on a CPU core. I launched inside a Pool of processses.
+	'''
 	ref_dict = get_dist_dict_by_time(g_dist_list[-1])
 	for k in ref_dict.keys():
 		if g_queries_list[i][1] in k:
@@ -160,6 +163,9 @@ def answer_per_proc_0(i):
 	return tuple(map(lambda p: p[1], se_list))
 
 def answer_queries_0(first_moment, last_moment,):
+	'''
+	Launches pool of processes for query answering.
+	'''
 	global g_queries_list, g_dist_list, g_dem_list
 	g_queries_list = list(pickle.load(open('unanswered_cern_queries.p','rb')))
 	g_dist_list, g_dem_list = get_matrices_time_moments_lists(first_moment, last_moment)
@@ -195,6 +201,9 @@ def answer_queries_0(first_moment, last_moment,):
 	)
 
 def answer_per_proc_1(i):
+	'''
+	Answers queries per on a CPU core. I launched inside a Pool of processses.
+	'''
 	ref_dict = g_dist_list[-1][1]
 	for k in ref_dict.keys():
 		if g_queries_list[i][1] in k:
@@ -230,6 +239,9 @@ def answer_per_proc_1(i):
 	return tuple(map(lambda p: p[1], se_list))
 
 def answer_queries_1(first_moment, last_moment, query_window=100000):
+	'''
+	Launches pool of processes for query answering.
+	'''
 	global g_dist_list, g_dem_list, g_queries_list
 
 	number_of_queries = len(pickle.load(open('unanswered_cern_queries.p','rb')))
@@ -298,6 +310,10 @@ def answer_queries_1(first_moment, last_moment, query_window=100000):
 	)
 
 def associate_per_proc(i):
+	'''
+	Associates queries to a throughput value per CPU core. Works inside a
+	pool of processes.
+	'''
 	g_dict[g_thp_list[i]] =\
 	list(
 		filter(
@@ -307,6 +323,9 @@ def associate_per_proc(i):
 	)
 
 def associate_queries(first_moment, last_moment, client_name, query_window=120000):
+	'''
+	Launches a pool of processes for associating queries to throughput values.
+	'''
 	global g_queries_list, g_thp_list, g_dict
 
 	# g_thp_list = get_throughput(first_moment, last_moment, client_name)
@@ -371,6 +390,10 @@ def associate_queries(first_moment, last_moment, client_name, query_window=12000
 	)
 
 def associate_per_proc_1(i):
+	'''
+	Associates queries to a throughput value per CPU core. Works inside a
+	pool of processes.
+	'''
 	g_dict[g_thp_list[i]] =\
 	list(
 		filter(
@@ -380,6 +403,9 @@ def associate_per_proc_1(i):
 	)
 
 def associate_queries_1(first_moment, last_moment, client_name, query_window=12000):
+	'''
+	Launches a pool of processes for associating queries to throughput values.
+	'''
 	global g_queries_list, g_thp_list, g_dict, g_st, g_fi
 
 	# g_thp_list = get_throughput(first_moment, last_moment, client_name)
@@ -629,6 +655,9 @@ def generate_new_data_set():
 	)
 
 def verify_per_proc(i):
+	'''
+	Validates a data set per CPU core inside a pool of processes.
+	'''
 	for q_list in g_answered_q_list:
 		if q_list[0] == g_sub_q_list[i][0]\
 			and q_list[1] == g_sub_q_list[i][1]\
@@ -1044,9 +1073,9 @@ def analyse_2():
 
 	plt.show()
 
-def split_indexes(
-		X,
-		output_fn='first_week_train_test_indexes_split.p'
+def split_indexes(\
+		X,\
+		output_fn='first_week_train_test_indexes_split.p'\
 	):
 	'''
 	Dump train/test split indexes.

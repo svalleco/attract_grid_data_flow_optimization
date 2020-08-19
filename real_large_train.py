@@ -2,7 +2,7 @@ from sklearn.svm import SVR
 import numpy as np
 import pickle
 import json
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import keras
 from multiprocessing import Pool
 
@@ -296,42 +296,41 @@ def get_model_1(ws, bins_no):
 	inp_layer = keras.layers.Input(shape=(ws, bins_no,))
 
 	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=300)
+		keras.layers.Dense(units=500)
 	)(inp_layer)
-
 	x = keras.layers.LeakyReLU(alpha=0.3)(x)
+	x = keras.layers.Dropout(0.1)(x)
 
-	x = keras.layers.Dropout(0.2)(x)
-
-	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=200, activation='tanh')
-	)(x)
-
+	x = keras.layers.BatchNormalization()(x)
 	x = keras.layers.Bidirectional(
 		keras.layers.LSTM(
-			units=200,
+			units=250,
 			return_sequences=True,
 		)
 	)(x)
+	# x = keras.layers.Dropout(0.05)(x)
 
+	x = keras.layers.BatchNormalization()(x)
+	x = keras.layers.TimeDistributed(
+		keras.layers.Dense(units=250,)
+	)(x)
+	x = keras.layers.LeakyReLU(alpha=0.3)(x)
+
+	x = keras.layers.BatchNormalization()(x)
 	x = keras.layers.TimeDistributed(
 		keras.layers.Dense(units=100,)
 	)(x)
-
 	x = keras.layers.LeakyReLU(alpha=0.3)(x)
 
-	x = keras.layers.Dropout(0.2)(x)
-
+	x = keras.layers.BatchNormalization()(x)
 	x = keras.layers.TimeDistributed(
 		keras.layers.Dense(units=25,)
 	)(x)
-
 	x = keras.layers.LeakyReLU(alpha=0.3)(x)
 
-	x = keras.layers.Dropout(0.2)(x)
-
+	x = keras.layers.BatchNormalization()(x)
 	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=1, activation='sigmoid')
+		keras.layers.Dense(units=1, activation='relu')
 	)(x)
 
 	return keras.models.Model(inputs=inp_layer, outputs=x)
@@ -351,24 +350,25 @@ def get_recurent_module(inp, bins_no):
 def get_model_2_0(ws, bins_no):
 	inp_layer = keras.layers.Input(shape=(ws, bins_no,))
 
-	# x = inp_layer
+	x = inp_layer
 
-	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=200)
-	)(inp_layer)
-	x = keras.layers.LeakyReLU(alpha=0.3)(x)
-	x = keras.layers.Dropout(0.05)(x)
+	# x = keras.layers.TimeDistributed(
+	# 	keras.layers.Dense(units=500)
+	# )(inp_layer)
+	# x = keras.layers.LeakyReLU(alpha=0.3)(x)
+	# x = keras.layers.Dropout(0.05)(x)
 
-	a_num = 100
+	a_num = 90
 
-	x = keras.layers.BatchNormalization()(x)
-	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=a_num)
-	)(x)
-	x = keras.layers.LeakyReLU(alpha=0.3)(x)
-	x = keras.layers.Dropout(0.05)(x)
+	# x = keras.layers.BatchNormalization()(x)
+	# x = keras.layers.TimeDistributed(
+	# 	keras.layers.Dense(units=a_num)
+	# )(x)
+	# x = keras.layers.LeakyReLU(alpha=0.3)(x)
+	# x = keras.layers.Dropout(0.05)(x)
 
-	x = keras.layers.BatchNormalization()(x)
+	# x = keras.layers.BatchNormalization()(x)
+
 	x = keras.layers.Concatenate()([\
 		get_recurent_module(\
 			keras.layers.Lambda(lambda y: y[:,i,:], output_shape=(1,a_num))(x),\
@@ -400,12 +400,12 @@ def get_model_2_0(ws, bins_no):
 	x = keras.layers.LeakyReLU(alpha=0.3)(x)
 	x = keras.layers.Dropout(0.05)(x)
 
-	# x = keras.layers.BatchNormalization()(x)
-	# x = keras.layers.TimeDistributed(
-	# 	keras.layers.Dense(units=75)
-	# )(x)
-	# x = keras.layers.LeakyReLU(alpha=0.3)(x)
-	# x = keras.layers.Dropout(0.05)(x)
+	x = keras.layers.BatchNormalization()(x)
+	x = keras.layers.TimeDistributed(
+		keras.layers.Dense(units=50)
+	)(x)
+	x = keras.layers.LeakyReLU(alpha=0.3)(x)
+	x = keras.layers.Dropout(0.05)(x)
 
 	x = keras.layers.BatchNormalization()(x)
 	x = keras.layers.TimeDistributed(
@@ -427,7 +427,7 @@ def nn_train_main_0():
 		train_indexes_list, valid_indexes_list = pickle.load(
 			open('first_week_train_test_indexes_split.p','rb')
 		)
-	if True:
+	if False:
 		X = json.load(open('first_week_normalized_data_set_site_thp.json','rt'))
 		train_indexes_list, valid_indexes_list = pickle.load(
 			open('first_week_train_test_indexes_split_site_thp.p','rb')
@@ -447,96 +447,84 @@ def nn_train_main_0():
 			)
 		)
 
-	window_size = 20
-
-	train_indexes_list, valid_indexes_list =\
-		list(filter(lambda e: e >= window_size - 1 , train_indexes_list)),\
-		list(filter(lambda e: e >= window_size - 1 , valid_indexes_list))
-
-	bin_size = len(X[0]) - 1
-
-	X_train = np.empty((len(train_indexes_list),window_size,bin_size))
-	y_train = np.empty((len(train_indexes_list),window_size,1))
-	for i in range(len(train_indexes_list)):
-		for c,j in zip(
-				range(window_size),
-				range(train_indexes_list[i] - window_size + 1, train_indexes_list[i] + 1),
-			):
-			X_train[i,c] = X[j][:-1]
-			y_train[i,c] = X[j][-1]
-
-	X_valid = np.empty((len(valid_indexes_list),window_size,bin_size))
-	y_valid = np.empty((len(valid_indexes_list),window_size,1))
-	for i in range(len(valid_indexes_list)):
-		for c,j in zip(
-				range(window_size),
-				range(valid_indexes_list[i] - window_size + 1, valid_indexes_list[i] + 1)
-			):
-			X_valid[i,c] = X[j][:-1]
-			y_valid[i,c] = X[j][-1]
+	if False:
+		X = json.load(open('three_weeks_normalized_data_set.json','rt'))
+		train_indexes_list, valid_indexes_list = pickle.load(
+			open('three_weeks_train_test_indexes_split.p','rb')
+		)
+		out_folder = 'three_weeks_models/'
 
 	if False:
-		if False:
+		X = json.load(open('three_weeks_normalized_trend_data_set.json','rt'))
+		train_indexes_list, valid_indexes_list = pickle.load(
+			open('three_weeks_train_test_indexes_split_trend.p','rb')
+		)
+		out_folder = 'three_weeks_models_trend/'
+
+	if False:
+		window_size = 40
+
+		train_indexes_list, valid_indexes_list =\
+			list(filter(lambda e: e >= window_size - 1 , train_indexes_list)),\
+			list(filter(lambda e: e >= window_size - 1 , valid_indexes_list))
+
+		bin_size = len(X[0]) - 1
+
+		X_train = np.empty((len(train_indexes_list),window_size,bin_size))
+		y_train = np.empty((len(train_indexes_list),window_size,1))
+		for i in range(len(train_indexes_list)):
 			for c,j in zip(
 					range(window_size),
-					range(valid_indexes_list[0] - window_size + 1, valid_indexes_list[0] + 1)
+					range(train_indexes_list[i] - window_size + 1, train_indexes_list[i] + 1),
 				):
-				for l in range(1000):
-					if X[j][l] != X_valid[0,c,l]:
-						print('found dif !!!')
-						exit(0)
-			print('did NOT found dif !!!')
+				X_train[i,c] = X[j][:-1]
+				y_train[i,c] = X[j][-1]
 
-		plt.plot(
-			range(X_train.shape[0]),
-			X_train[:, 0,0]
-		)
-		plt.plot(
-			range(X_train.shape[0]),
-			X_train[:, 0,-1]
-		)
-		# plt.plot(
-		# 	range(X_train.shape[0]),
-		# 	y_train[:, 0]
-		# )
-		plt.show()
+		X_valid = np.empty((len(valid_indexes_list),window_size,bin_size))
+		y_valid = np.empty((len(valid_indexes_list),window_size,1))
+		for i in range(len(valid_indexes_list)):
+			for c,j in zip(
+					range(window_size),
+					range(valid_indexes_list[i] - window_size + 1, valid_indexes_list[i] + 1)
+				):
+				X_valid[i,c] = X[j][:-1]
+				y_valid[i,c] = X[j][-1]
 
-		exit(0)
-
-	del X
-	del valid_indexes_list
-	del train_indexes_list
-
-	# X_train = X_train[:,:,500:]
-	# X_valid = X_valid[:,:,500:]
-
-	from keras import backend as K
-	K.set_session(
-		K.tf.Session(
-			config=K.tf.ConfigProto(
-				intra_op_parallelism_threads=7,
-				inter_op_parallelism_threads=7
-			)
-		)
-	)
+		del X
+		del valid_indexes_list
+		del train_indexes_list
 
 	if True:
-		model = get_model_2_0(window_size, 1000)
+		a,b,c,d = json.load( open( '/optane/mipopa/data_set_dumps/three_weeks_ready_to_train_90_bins_data_set.json' , 'rt') )
+		X_train = np.array(a)
+		y_train = np.array(b)
+		X_valid = np.array(c)
+		y_valid = np.array(d)
+		out_folder = 'three_weeks_corr_2k_bins_thp/'
+
+
+	if True:
+		model = get_model_2_0(len(c[0]), len(c[0][0]))
 
 		model.compile(
 			optimizer=keras.optimizers.Adam(),
 			loss='mean_absolute_percentage_error',
 			metrics=['mae',]
 		)
+		del a
+		del b
+		del c
+		del d
 	if False:
-		model = get_model_2_0(window_size, 500)
+		model = get_model_1(window_size, 1000)
 		model.compile(
 			optimizer=keras.optimizers.Adam(),
 			loss='mean_absolute_percentage_error',
 			metrics=['mae',]
 		)
 
-		old_model = keras.models.load_model('models/model_0040.hdf5')
+		old_model = keras.models.load_model(
+			'/optane/mipopa/three_weeks_models_trend_corr/best_model.hdf5')
 
 		old_model_idexes_list = []
 		for i in range(len(old_model.layers)):
@@ -552,6 +540,7 @@ def nn_train_main_0():
 				j+=1
 		del old_model
 		del old_model_idexes_list
+
 	if False:
 		model = get_model_2_0(window_size, 500)
 		model.load_weights('models/model_weights.h5')
@@ -572,14 +561,14 @@ def nn_train_main_0():
 		x=X_train,
 		y=y_train,
 		batch_size=32,
-		epochs=300,
+		epochs=100000,
 		validation_data=(\
 			X_valid,
 			y_valid,
 		),
-		callbacks=[
-			keras.callbacks.ModelCheckpoint("models/model_{epoch:04d}.hdf5", monitor='loss', period=10),
-		]
+		# callbacks=[
+		# 	keras.callbacks.ModelCheckpoint(out_folder + "model_{epoch:04d}.hdf5", monitor='loss', save_best_only=True),
+		# ]
 	)
 
 def get_model_3(ws, bins_no, out_len):
@@ -628,9 +617,9 @@ def get_model_3(ws, bins_no, out_len):
 def nn_train_main_1():
 
 	if True:
-		X = json.load(open('first_week_normalized_data_set_cern_all_clients.json','rt'))
+		X = json.load(open('three_weeks_normalized_data_set.json','rt'))
 		train_indexes_list, valid_indexes_list = pickle.load(
-			open('first_week_train_test_indexes_split_cern_all_clients.p','rb')
+			open('three_weeks_train_test_indexes_split.p','rb')
 		)
 
 	print( len(X[0][0]) )
@@ -817,9 +806,165 @@ def nn_train_main_2():
 		),
 	)
 
+def dump_predictions_main():
+
+	model = keras.models.load_model('three_weeks_models_trend/model_0159.hdf5')
+
+	if True:
+		X = json.load(open('data_set_dumps/three_weeks_normalized_trend_data_set.json','rt'))
+		train_indexes_list, valid_indexes_list = pickle.load(
+			open('data_set_dumps/three_weeks_train_test_indexes_split_trend.p','rb')
+		)
+
+	window_size = 40
+
+	train_indexes_list, valid_indexes_list =\
+		list(filter(lambda e: e >= window_size - 1 , train_indexes_list)),\
+		list(filter(lambda e: e >= window_size - 1 , valid_indexes_list))
+
+	bin_size = len(X[0]) - 1
+
+	X_train = np.empty((len(train_indexes_list),window_size,bin_size))
+	y_train = np.empty((len(train_indexes_list),window_size,1))
+	for i in range(len(train_indexes_list)):
+		for c,j in zip(
+				range(window_size),
+				range(train_indexes_list[i] - window_size + 1, train_indexes_list[i] + 1),
+			):
+			X_train[i,c] = X[j][:-1]
+			y_train[i,c] = X[j][-1]
+
+	X_valid = np.empty((len(valid_indexes_list),window_size,bin_size))
+	y_valid = np.empty((len(valid_indexes_list),window_size,1))
+	for i in range(len(valid_indexes_list)):
+		for c,j in zip(
+				range(window_size),
+				range(valid_indexes_list[i] - window_size + 1, valid_indexes_list[i] + 1)
+			):
+			X_valid[i,c] = X[j][:-1]
+			y_valid[i,c] = X[j][-1]
+
+	y_pred = model.predict( X_train )
+
+	ground_truth_list = list()
+	predicted_list = list()
+
+	for i in range(y_pred.shape[0]):
+		ground_truth_list.append(
+			(
+				train_indexes_list[i],
+				y_train[i,0,0],
+			)
+		)
+		predicted_list.append(
+			(
+				train_indexes_list[i],
+				y_pred[i,0,0],
+			)
+		)
+	y_pred_train = y_pred
+
+	y_pred = model.predict( X_valid )
+	for i in range(y_pred.shape[0]):
+		ground_truth_list.append(
+			(
+				valid_indexes_list[i],
+				y_valid[i,0,0],
+			)
+		)
+		predicted_list.append(
+			(
+				valid_indexes_list[i],
+				y_pred[i,0,0],
+			)
+		)
+
+	if False:
+		if window_size - 1 in train_indexes_list:
+			ind = train_indexes_list.index(window_size - 1)
+
+			for i in range(window_size-1):
+				ground_truth_list.append(
+					(
+						i,
+						y_train[ind,i,0],
+					)
+				)
+				predicted_list.append(
+					(
+						i,
+						y_pred_train[ind,i,0],
+					)
+				)
+		else:
+			ind = valid_indexes_list.index(window_size - 1)
+
+			for i in range(window_size-1):
+				ground_truth_list.append(
+					(
+						i,
+						y_valid[ind,i,0],
+					)
+				)
+				predicted_list.append(
+					(
+						i,
+						y_pred[ind,i,0],
+					)
+				)
+
+	pickle.dump(
+		(
+			tuple(
+				map(
+					lambda e: e[1],
+					sorted(ground_truth_list)
+				)
+			),
+			tuple(
+				map(
+					lambda e: e[1],
+					sorted(predicted_list)
+				)
+			),
+		),
+		open(
+			'network_results.p',
+			'wb'
+		)
+	)
+
+def dump_predictions_main_1():
+	a,b,_,_ = json.load( open( '/optane/mipopa/data_set_dumps/three_weeks_ready_to_train_trend_data_set.json' , 'rt') )
+	X_train = np.array(a)
+	y_train = np.array(b)
+
+	del a
+	del b
+
+	y_pred = keras.models.load_model('three_weeks_models_trend_corr/model_0082.hdf5').predict( X_train )
+
+	ground_truth_list = list()
+	predicted_list = list()
+
+	for i in range(y_pred.shape[0]):
+		ground_truth_list.append(y_train[i,0,0])
+		predicted_list.append(y_pred[i,0,0])
+
+	pickle.dump(
+		(
+			ground_truth_list,
+			predicted_list,
+		),
+		open(
+			'network_results.p',
+			'wb'
+		)
+	)
+
 if __name__ == '__main__':
 	global n_proc
 
 	n_proc = 95
 
-	nn_train_main_2()
+	dump_predictions_main_1()

@@ -15,7 +15,11 @@ import tensorflow as tf
 from collections import namedtuple
 import itertools
 from pca_utils import *
+import sys
 
+'''
+Hardcoded file paths
+'''
 MATRIXES_FOLDER_LIST = (\
 	'./remote_host_0/log_folder/',\
 	'./remote_host_1/log_folder/',\
@@ -40,9 +44,13 @@ RAW_QUERY_FILES = (\
 	'/data/mipopa/apicommands.log',
 	'/data/mipopa/apicommands2.log',
 	'/data/mipopa/apicommands3.log',
+	'./apicommands4.log'
 )
 
 def create_folder_and_copy_files():
+	'''
+	Used to copy some files
+	'''
 	folder_path = '/home/mircea/cern_log_folder/remote_host/log_folder/'
 
 	os.mkdir('./remote_host_0/')
@@ -369,23 +377,6 @@ def get_pca_of_the_matrices():
 	'''
 	week_0_list, week_1_list, week_2_list = pickle.load(open('whole_matrices.p','rb'))
 
-	if False:
-		c = list(map(lambda e: e[1], week_0_list))\
-				+ list(map(lambda e: e[1], week_1_list))\
-				+ list(map(lambda e: e[1], week_2_list))
-
-		l_0 = len(c[0])
-
-		i = 0
-		for plm in c:
-			if len(plm) != l_0:
-				print(
-					str(i) + ' '\
-					+ str(l_0) + ' '\
-					+ str(plm))
-				exit(0)
-			i+=1
-
 	if True:
 		output_file = 'time_tags_and_top_80_pca_components.p'
 
@@ -470,6 +461,10 @@ def get_pca_of_the_matrices():
 	)
 
 def get_read_size_per_proc(i):
+	'''
+	Creates a dictionary with the read size per time moment information on
+	a single core.
+	'''
 	d = dict()
 	for tm , _ , _ , rs in json.load(open(filename_list[i][1],'rt')):
 		if tm in d:
@@ -479,6 +474,10 @@ def get_read_size_per_proc(i):
 	return (filename_list[i][0],d,)
 
 def get_read_size_per_time_moment_for_cern():
+	'''
+	Creates a dictionary with the read size per time moment information for
+	the 3 weeks.
+	'''
 	global filename_list
 	filename_list = list(
 		itertools.chain.from_iterable(
@@ -541,7 +540,7 @@ def get_read_size_from_all_queries():
 	Sets up data for transfer getting the dictionary of time_tag -> read_size for
 	each of the three weeks.
 	'''
-	def get_rs_per_week(input_file_name):
+	def get_rs_per_week(input_file_name, maximize_memory_efficiency_flag=False):
 		global file_variable, g_idexes_pairs_tuple
 
 		file_variable = open(input_file_name,'rt').read()
@@ -575,6 +574,9 @@ def get_read_size_from_all_queries():
 
 		p.close()
 
+		if maximize_memory_efficiency_flag:
+			p.join()
+
 		week_dict = dict()
 
 		for d in d_list:
@@ -586,17 +588,52 @@ def get_read_size_from_all_queries():
 
 		return sorted( week_dict.items() )
 
-	pickle.dump(
-		(
-			get_rs_per_week(RAW_QUERY_FILES[0]),
-			get_rs_per_week(RAW_QUERY_FILES[1]),
-			get_rs_per_week(RAW_QUERY_FILES[2]),
-		),
-		open(
-			PCA_DUMP_FOLDER + 'all_queries_read_size.p',
-			'wb'
+	def get_single_process_rs_per_week(input_file_name):
+		file_variable = open(input_file_name,'rt').read()
+
+		file_variable = file_variable.split('\n')[1:]
+		if len(file_variable[-1]) < 5: file_variable = file_variable[:-1]
+
+		d = dict()
+		for tm , rs in\
+			map(
+				lambda line: (int(line[0]),int(line[2]),),
+				map(lambda line: line.split(','),file_variable)
+			):
+			if tm in d:
+				d[tm] += rs
+			else:
+				d[tm] = rs
+
+		return sorted( d.items() )
+
+	if False:
+		pickle.dump(
+			(
+				get_rs_per_week(RAW_QUERY_FILES[0]),
+				get_rs_per_week(RAW_QUERY_FILES[1]),
+				get_rs_per_week(RAW_QUERY_FILES[2]),
+			),
+			open(
+				PCA_DUMP_FOLDER + 'all_queries_read_size.p',
+				'wb'
+			)
 		)
-	)
+
+	if True:
+
+		new_result = get_single_process_rs_per_week(RAW_QUERY_FILES[3])
+
+		pickle.dump(
+			pickle.load(open(
+				PCA_DUMP_FOLDER + 'all_queries_read_size.p', 'rb'
+			))\
+			+ ( new_result , ),
+			open(
+				PCA_DUMP_FOLDER + 'all_queries_read_size_4th_june.p',
+				'wb'
+			)
+		)
 
 def generate_throughput_trend_train():
 	'''
@@ -648,7 +685,10 @@ def generate_throughput_trend_train():
 	)
 
 def normalize_and_split_data_set(data_set_file,time_window):
-
+	'''
+	Normalizes and splits the data set into training and validations sets
+	while preserving the same value distribution in the 2 sets
+	'''
 	bins_list = get_normalized_values_per_week(data_set_file)
 
 	indexes_dict = {
@@ -822,15 +862,19 @@ def get_model_1(ws, bins_no, small_net_flag, lstm_at_end):
 	x = keras.layers.BatchNormalization()(x)
 
 	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=10,
-				activation='relu')
+		keras.layers.Dense(
+			units=10,
+			activation='relu'
+		)
 	)(x)
 	# x = keras.layers.LeakyReLU(alpha=0.3)(x)
 	x = keras.layers.BatchNormalization()(x)
 
 	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=5,
-				activation='relu')
+		keras.layers.Dense(
+			units=5,
+			activation='relu'
+		)
 	)(x)
 	# x = keras.layers.LeakyReLU(alpha=0.3)(x)
 	x = keras.layers.BatchNormalization()(x)
@@ -839,20 +883,24 @@ def get_model_1(ws, bins_no, small_net_flag, lstm_at_end):
 		x = keras.layers.Bidirectional(
 			keras.layers.LSTM(
 				units=1,
-				return_sequences=True,
+				return_sequences=False,
 			)
 		)(x)
 		x = keras.layers.BatchNormalization()(x)
 
-	x = keras.layers.TimeDistributed(
-		keras.layers.Dense(units=1, activation='sigmoid')
-	)(x)
+	# x = keras.layers.TimeDistributed(
+	# 	keras.layers.Dense(units=1, activation='sigmoid')
+	# )(x)
 
-	# x = keras.layers.Dense(units=1, activation='relu')(x)
+	x = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 	return keras.models.Model(inputs=inp_layer, outputs=x)
 
 def train_main():
+	'''
+	Runs a single configuration fitting process.3
+	'''
+
 	def get_model_2(ws, bins_no):
 		inp_layer = keras.layers.Input(shape=(ws, bins_no,))
 
@@ -1128,6 +1176,11 @@ def train_main():
 	# result_3.p: [13.21034426138444, 0.04825518]
 
 def get_dataset_for_dense_net(data_set_file):
+	'''
+	Creates the training/validation data sets
+	for training a fully-connected artificial
+	neural network.
+	'''
 	examples_list = tuple(
 
 		itertools.chain.from_iterable(
@@ -1162,6 +1215,9 @@ def get_dataset_for_dense_net(data_set_file):
 		np.array(y_valid_iterable)
 
 def train_main_0(data_set_file):
+	'''
+	Trains a fully-connected neural network.
+	'''
 	X_train_iterable, y_train_iterable, X_valid_iterable, y_valid_iterable\
 		=get_dataset_for_dense_net(data_set_file)
 
@@ -1200,7 +1256,10 @@ def train_main_0(data_set_file):
 	)
 
 def get_results_0(data_set_file,best_model_path):
-
+	'''
+	Returns the loss value and prediction values on a
+	data set.
+	'''
 	model = keras.models.load_model( best_model_path )
 
 	predict_list = list()
@@ -1278,6 +1337,21 @@ def get_model_for_grid_search_0(model_creation_dict):
 		model_creation_dict['small_flag'],
 		model_creation_dict['lstm_flag']
 	)
+
+	if False:
+		old_model_path = './pca_multiple_model_folders/models_313/model_0284.hdf5'
+
+		old_model = keras.models.load_model(old_model_path)
+
+		for i in range( len( old_model.layers ) ):
+
+			if old_model.layers[i].name.startswith('bidirectional')\
+				or old_model.layers[i].name.startswith('time_distributed')\
+				or old_model.layers[i].name.startswith('dense'):
+
+				model.layers[ i ].set_weights(old_model.layers[i].get_weights())
+
+		del old_model
 
 	model.compile(
 		optimizer=model_creation_dict['optimizer'],
@@ -1385,9 +1459,11 @@ def fit_model_1(model, model_fit_dict):
 	)
 
 def nn_train_per_proc(i):
+	'''
+	Trains a neural network configuration on a GPU. It works inside a
+	pool of processes.
+	'''
 	model_create_f, create_dict, model_fit_f, fit_dict = pool_arguments_list[i]
-
-	print('Entered training !')
 
 	gpu_string = proc_q.get()
 
@@ -1399,17 +1475,20 @@ def nn_train_per_proc(i):
 		with tf.Session() as sess:
 
 			# tf.compat.v1.keras.backend.set_session(sess)
-			K.set_session
+			K.set_session(sess)
 
 			model = model_create_f(create_dict)
 
 			model_fit_f(model,fit_dict)
 
-	print('\nFinished: ' + str(i) + ' ' + fit_dict['csv_log_path'])
+	print('\n\n\n\nFinished: ' + str(i) + ' ' + fit_dict['csv_log_path'] + '\n\n\n\n')
 
 	proc_q.put(gpu_string)
 
 def get_lr_decay_arguments_pool(new_index):
+	'''
+	Produces a set of configurations for the architecture.
+	'''
 	epochs_speis = 10
 
 	pool_arguments_list = list()
@@ -1458,6 +1537,9 @@ def get_lr_decay_arguments_pool(new_index):
 	return pool_arguments_list
 
 def get_overlap_parameters(new_index):
+	'''
+	Produces a set of configurations for the architecture.
+	'''
 	pool_arguments_list = list()
 
 	for overlap in range(6):
@@ -1501,6 +1583,9 @@ def get_overlap_parameters(new_index):
 	return pool_arguments_list
 
 def get_lr_vs_bs_parameters(new_index, data_set_name='normal_set'):
+	'''
+	Produces a set of configurations for the architecture.
+	'''
 	pool_arguments_list = list()
 
 	for l_r in (0.004, 0.001, 0.0004 ):
@@ -1577,7 +1662,9 @@ def get_lr_vs_bs_parameters_1(
 	learning_rate_list=[],
 	batch_size_list=[],
 	already_trained_list=[]):
-
+	'''
+	Produces a set of configurations for the architecture.
+	'''
 	pool_arguments_list = list()
 
 	for l_r in learning_rate_list:
@@ -1587,16 +1674,30 @@ def get_lr_vs_bs_parameters_1(
 			if new_index not in already_trained_list:
 
 				with open( 'pca_index_meaning/' + str(new_index) + '.txt' , 'wt' ) as myfile:
-					myfile.write(
-						get_log_str_function(
-							new_index,
-							l_r,
-							b_s,
-							data_set_name,
-							small_flag,
-							lstm_flag,
+
+					if False:
+
+						myfile.write(
+							get_log_str_function(
+								new_index,
+								l_r,
+								b_s,
+								data_set_name,
+								small_flag,
+								lstm_flag,
+							)
 						)
-					)
+
+					if True:
+
+						myfile.write(
+							get_log_str_function(
+								new_index,
+								l_r,
+								b_s,
+								data_set_name,
+							)
+						)
 
 				models_folder_name = 'models_' + str(new_index)
 
@@ -1605,9 +1706,9 @@ def get_lr_vs_bs_parameters_1(
 						'./pca_multiple_model_folders/'\
 						+ models_folder_name
 					)
-				else:
-					for to_del_fn in os.listdir('./pca_multiple_model_folders/'+ models_folder_name):
-						os.remove('./pca_multiple_model_folders/'+ models_folder_name+'/'+to_del_fn)
+				# else:
+				# 	for to_del_fn in os.listdir('./pca_multiple_model_folders/'+ models_folder_name):
+				# 		os.remove('./pca_multiple_model_folders/'+ models_folder_name+'/'+to_del_fn)
 
 				pool_arguments_list.append(
 					(
@@ -1629,7 +1730,7 @@ def get_lr_vs_bs_parameters_1(
 								+ models_folder_name + '/',
 							'data_set_key':data_set_name,
 							'batch_size':b_s,
-							'epochs':500,
+							'epochs':700,
 							'patience':125,
 						},
 					)
@@ -1652,14 +1753,17 @@ def get_lr_vs_bs_parameters_1(
 
 	return pool_arguments_list, new_index
 
-def transform_array_only_last(arr):
-	new_arr = np.empty( ( arr.shape[0] , 1 ) )
-	for i in range( arr.shape[0] ): new_arr[i,0] = arr[i,-1,0]
-	return new_arr
-
 def hyper_parameters_sweep_train():
+	'''
+	Implements the hyperparameter grid search through the
+	neural network configurations.
+	'''
+
 	# range: 284 - 293
 	# range: 293 - 302
+	# range: 306 - 315
+	# range: 315 - 324
+	# range: 326 - 335
 
 	models_folders_list = list()
 
@@ -1677,64 +1781,15 @@ def hyper_parameters_sweep_train():
 
 		exit(0)
 	if True:
-		new_index = 293
-
-
-	if False:
-		data_set_index = max(
-			map(
-				lambda fn: int( fn.split('.')[0] ),
-				os.listdir('./pca_data_sets/')
-			)
-		) + 1
-	if True:
-		data_set_index = 4
+		new_index = 371
 
 	global data_set_dict, pool_arguments_list, proc_q
 
-# start: Produce data set
+	# start: Produce data set
 	data_set_dict = dict()
 
 	if False:
-		data_set_dict['time_window_30'] =\
-		tuple(
-			map(
-				lambda e: np.array(e),
-				json.load(
-					open(
-						PCA_DUMP_FOLDER+'ready_to_train_data_set.json',
-						'rt'
-					)
-				)
-			)
-		)
-
-	if False:
-		for overlap in range(6):
-			data_set_dict['overlap_' + str(overlap)] = normalize_and_split_data_set_1(
-				'complete_data_set_top_80.p',
-				40,
-				overlap,
-			)
-
-	if False:
-		data_set_dict['time_length_40'] = normalize_and_split_data_set_1(
-			'complete_data_set_top_80.p',
-			40,
-			20,
-		)
-
-	if False:
-		data_set_dict['normal_set'] = get_dataset_for_dense_net('complete_data_set_top_80.p')
-		data_set_dict['overlap_39'] = normalize_and_split_data_set_1('complete_data_set_top_80.p',40,39)
-		dump_data_sets_flag = True
-
-	if False:
-		data_set_dict['overlap_39'] = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
-		dump_data_sets_flag = False
-
-	if False:
-		tr_x, tr_y, va_x, va_y = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
+		tr_x, tr_y, va_x, va_y = pickle.load(open('./pca_data_sets/8.p','rb'))['train_valid_data_sets']
 		tr_y, va_y =\
 			transform_array_only_last(tr_y),\
 			transform_array_only_last(va_y)
@@ -1747,7 +1802,7 @@ def hyper_parameters_sweep_train():
 		data_set_dict['overlap_20'] = pickle.load(open('./pca_data_sets/0.p','rb'))[2]
 		dump_data_sets_flag = False
 
-	if True:
+	if False:
 		data_set_dict['normal_set'] = pickle.load(open('./pca_data_sets/4.p','rb'))[2]
 		data_set_dict['normal_set'] =\
 		(
@@ -1758,37 +1813,47 @@ def hyper_parameters_sweep_train():
 		)
 		dump_data_sets_flag = False
 
-		print('\n\n\n\n Will train on: ' + str(data_set_dict['normal_set'][0].shape) + '\n\n\n\n')
+	if True:
+		data_set_dict['4th_june'] = pickle.load(open('./pca_data_sets/9_4th_June_pc.p','rb'))['train_valid_data_sets']
 
-# end: Produce data set
+		data_set_dict['4th_june'] =\
+		(
+			data_set_dict['4th_june'][0],
+			transform_array_only_last(data_set_dict['4th_june'][1]),
+			data_set_dict['4th_june'][2],
+			transform_array_only_last(data_set_dict['4th_june'][3]),
+		)
+
+	# end: Produce data set
 
 	index_copy = new_index
 
-# start: Produce arguments
+	# start: Produce arguments
 	pool_arguments_list = list()
-
-	# a, new_index = get_lr_vs_bs_parameters(
-	# 	new_index,
-	# 	'normal_set'
-	# )
-	# pool_arguments_list += a
-
-	# pool_arguments_list, new_index = get_lr_vs_bs_parameters_1(new_index, 'overlap_10')
 
 	already_trained = (
 		230 , 231 , 232 , 233, 235 , 237
 	)
 
-	log_func = lambda ind, lr, bs, data_set_name, small_flag, lstm_flag:\
-		str(ind)\
-		+': default adam '\
-		+ ( '+ time distributed' if not small_flag else '+ lstm' ) + ' at begining '\
-		+ ( '+ lstm' if lstm_flag else '+ time distributed' ) + ' at end '\
-		+'+ data_set_name ' + str( data_set_name ) + ' only last cell '\
-		+'+ lr ' + str(lr) + ' '\
-		+'+ batch size ' + str(bs)
+	if False:
+		log_func = lambda ind, lr, bs, data_set_name, small_flag, lstm_flag:\
+			str(ind)\
+			+': default adam '\
+			+ ( '+ time distributed' if not small_flag else '+ lstm' ) + ' at begining '\
+			+ ( '+ lstm' if lstm_flag else '+ time distributed' ) + ' at end '\
+			+'+ data_set_name ' + str( data_set_name ) + ' only last cell '\
+			+'+ lr ' + str(lr) + ' '\
+			+'+ batch size ' + str(bs)
 
 	if True:
+		log_func = lambda ind, lr, bs, data_set_name:\
+			str(ind)\
+			+': default adam '\
+			+'+ data_set_name ' + str( data_set_name ) + ' only last cell '\
+			+'+ lr ' + str(lr) + ' '\
+			+'+ batch size ' + str(bs) + ' + 20000 set + pca on unique + no pretrain'
+
+	if False:
 		a, new_index = get_lr_vs_bs_parameters(new_index)
 		pool_arguments_list += a
 
@@ -1796,7 +1861,7 @@ def hyper_parameters_sweep_train():
 		# start 26th april, start_index=284
 		lr_list = ( 0.004 , 0.001, 0.0004 )
 		bs_list = ( 256 , 128 , 64 )
-		a, new_index = get_lr_vs_bs_parameters_1(
+		a, new_index=get_lr_vs_bs_parameters_1(
 			new_index,
 			'overlap_39',
 			log_func,
@@ -1809,50 +1874,13 @@ def hyper_parameters_sweep_train():
 		)
 		pool_arguments_list += a
 
-	if False:
-		# 25th april, first_index=250 , last_config_index=283
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			True,
-			True,
-			(0.001,),
-			(64,),
-			already_trained
-		)
-		pool_arguments_list += a
-
-		lr_list = ( 0.004 , 0.0004 )
+	if True:
+		# 7th June, start_index = 371
+		lr_list = ( 0.004 , 0.001, 0.0004 )
 		bs_list = ( 256 , 128 , 64 )
-		a, new_index = get_lr_vs_bs_parameters_1(
+		a, new_index=get_lr_vs_bs_parameters_1(
 			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			True,
-			False,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			False,
-			False,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
+			'4th_june',
 			log_func,
 			get_model_for_grid_search_0,
 			False,
@@ -1862,78 +1890,14 @@ def hyper_parameters_sweep_train():
 			already_trained
 		)
 		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			True,
-			True,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-
-		lr_list = ( 0.001, )
-		bs_list = ( 256, )
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			True,
-			False,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			False,
-			False,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			False,
-			True,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-		a, new_index = get_lr_vs_bs_parameters_1(
-			new_index,
-			'overlap_39',
-			log_func,
-			get_model_for_grid_search_0,
-			True,
-			True,
-			lr_list,
-			bs_list,
-			already_trained
-		)
-		pool_arguments_list += a
-
-	# finished for: 214 222 206 207 223 215 230 216 208 224
 
 	print('\n\n\n\n\nlast index: ' + str(new_index) + '\n\n\n\n\n')
 
-# end: Produce arguments
+	# end: Produce arguments
 
-# start: Dump data_sets
-	if dump_data_sets_flag:
+	# start: Dump data_sets
+	# if dump_data_sets_flag:
+	if False:
 		for data_set_label, ds in data_set_dict.items():
 
 			pickle.dump(
@@ -1961,7 +1925,7 @@ def hyper_parameters_sweep_train():
 
 			data_set_index += 1
 
-#end: Dump data_sets
+	#end: Dump data_sets
 
 	with open('pca_what_is_what.txt', 'wt') as myfile:
 		for _, content in sorted( map(
@@ -1971,8 +1935,7 @@ def hyper_parameters_sweep_train():
 
 	proc_q = Queue()
 	a = 0
-	# for _ in range(3):
-	for gpu_string in ('/gpu:0','/gpu:1','/gpu:2','/gpu:3'):
+	for gpu_string in ('/gpu:2','/gpu:3'):
 		proc_q.put( gpu_string )
 		a+=1
 
@@ -1996,6 +1959,9 @@ Cache_Element = namedtuple(
 )
 
 def set_up_windowed_data_set(bins_list, time_window, max_overlap_length=39):
+	'''
+	Sets up a time sequence data set.
+	'''
 	x_iterables_list = list()
 	y_iterables_list = list()
 	for b_list in bins_list:
@@ -2028,6 +1994,10 @@ def set_up_windowed_data_set(bins_list, time_window, max_overlap_length=39):
 	return x_iterables_list , y_iterables_list
 
 def aggregate_arrays(x_iterables_list, y_iterables_list):
+	'''
+	Puts together arrays from the 3 weeks of data. Can work with any number
+	of weeks.
+	'''
 	x_array = np.empty( (
 		sum(map( lambda arr: arr.shape[0] , x_iterables_list )),
 		x_iterables_list[0].shape[1],
@@ -2051,6 +2021,9 @@ def aggregate_arrays(x_iterables_list, y_iterables_list):
 	return x_array, y_array
 
 def get_best_valid_index_model(index):
+	'''
+	DEPRECATED
+	'''
 	dumped_models_set = set(\
 		map(
 				lambda fn: int( fn[6:10] ),
@@ -2092,6 +2065,9 @@ def get_best_valid_index_model(index):
 	return best_valid_model_and_loss
 
 def get_models_name_on_index(index):
+	'''
+	Returns model name based on an input index.
+	'''
 	if index < 10:
 		return 'model_000' + str(index) + '.hdf5'
 	if index < 100:
@@ -2101,6 +2077,18 @@ def get_models_name_on_index(index):
 	return 'model_' + str(index) + '.hdf5'
 
 def reorder_valid_in_temporal_order(all_x,all_y,v_x,v_y):
+	'''
+	Reorders the validation data set in temporal order.
+
+	all_x,all_y
+		Numpy arrays containing all the data points from both
+		the training and validation data sets in temporal order.
+
+	v_x,v_y
+		Numpy arrays containing the data points from a subset of
+		the whole data set what will be rearranged in the original
+		temporal order
+	'''
 	indexes_list = list()
 
 	for i in range( v_x.shape[0] ):
@@ -2129,6 +2117,10 @@ def reorder_valid_in_temporal_order(all_x,all_y,v_x,v_y):
 	return new_x, new_y, return_list
 
 def aggregate_arrays_0(x_iterable, y_iterable):
+	'''
+	Creates 2 numpy arrays merging the data from the input
+	variables which contain it per week.
+	'''
 	a_x = np.copy(
 		x_iterable[0]
 	)
@@ -2149,6 +2141,10 @@ def aggregate_arrays_0(x_iterable, y_iterable):
 	return a_x, a_y
 
 def dump_nn_results(aaaaa):
+	'''
+	Task function for a pool of processes. Evaluates the performance
+	and infers based on a model that has already been trained.
+	'''
 	data_set_file, gpu_string, limits = aaaaa
 
 	dir_list = os.listdir('pca_multiple_model_folders/')
@@ -2399,6 +2395,11 @@ def dump_nn_results(aaaaa):
 					print()
 
 def dump_nn_results_0(gpu_string):
+	'''
+	Task function for a pool of processes. Evaluates the performance
+	and infers based on a model that has already been trained.
+	'''
+
 	# with tf.device(gpu_string):
 	# 	# with tf.compat.v1.Session() as sess:
 	# 	with tf.Session() as sess:
@@ -2409,20 +2410,20 @@ def dump_nn_results_0(gpu_string):
 	# 		for ind in gpu_task_dict[gpu_string]:
 	if True:
 		if True:
-			for ind in (304,):
+			for ind in (320,):
 
 				best_valid_tuple = get_best_valid_index_model( ind )
 
-				# model = keras.models.load_model(
-				# 	'pca_multiple_model_folders/'\
-				# 	+ 'models_' + str(ind) + '/'\
-				# 	+ get_models_name_on_index( best_valid_tuple[0] )
-				# )
-
 				model = keras.models.load_model(
 					'pca_multiple_model_folders/'\
-					+ 'models_304/model_0318.hdf5'
+					+ 'models_' + str(ind) + '/'\
+					+ get_models_name_on_index( best_valid_tuple[0] )
 				)
+
+				# model = keras.models.load_model(
+				# 	'pca_multiple_model_folders/'\
+				# 	+ 'models_304/model_0318.hdf5'
+				# )
 
 				input_shape = model.layers[0].output_shape[0]
 				output_shape = model.layers[-1].output_shape
@@ -2524,6 +2525,8 @@ def dump_nn_results_0(gpu_string):
 							)
 						)
 
+				print('\n\n\n\n' + str(best_valid_tuple[2]) + '\n\n\n\n')
+
 				pickle.dump(
 					{
 						'whole_data_set_performance' :\
@@ -2531,10 +2534,10 @@ def dump_nn_results_0(gpu_string):
 								index_data_set_dict[ind].x_all_weeks,
 								index_data_set_dict[ind].y_all_weeks,
 							),
-						# 'best_model_performance' :\
-						# 	best_valid_tuple[2],
 						'best_model_performance' :\
-							'318,6.942901716419845,0.026840016,7.137319571097857,0.024455104',
+							best_valid_tuple[2],
+						# 'best_model_performance' :\
+						# 	'318,6.942901716419845,0.026840016,7.137319571097857,0.024455104',
 						'per_week_predictions' :\
 							predict_list,
 						'validation_predictions' :\
@@ -2550,55 +2553,29 @@ def dump_nn_results_0(gpu_string):
 					)
 				)
 
-# dump_nn_results_0('/gpu:1')
-# exit(0)
-
 def dump_results_main():
-# Start: Set Up Dictionaries
+	'''
+	Implements the main function that evaluates and infers based on models
+	that already have been trained. It does that in parallel by using
+	multiple GPUs.
+	'''
+
+	# Start: Set Up Dictionaries
 	index_to_valid_dict,index_to_x_y_per_week_dict,x_y_per_week_dict,valid_set_dict,\
 		x_y_whole_dict = dict(), dict(), dict(), dict(), dict()
 
 	if False:
 		bins_list = get_normalized_values_per_week('complete_data_set_top_80.p')
-	if True:
+	if False:
 		bins_list = get_normalized_values_per_week('tm_tren_ars_pc_per_week_4_may.p')
+	if True:
+		bins_list = get_normalized_values_per_week('tm_tren_ars_pc_per_week_10_may.p')
 
 	if False:
 		# best dense: 206
 		# best RNN with relu: 242
 		# best RNN with sigmoid: 283
 
-		# x_y_per_week_dict[ 'only_dense' ] =\
-		# 	(
-		# 		list(
-		# 			map(
-		# 				lambda b_list:
-		# 					np.array(
-		# 						list(
-		# 							map(
-		# 								lambda ex: ex[:-1],
-		# 								b_list
-		# 							)
-		# 						)
-		# 					),
-		# 				bins_list
-		# 			)
-		# 		),
-		# 		list(
-		# 			map(
-		# 				lambda b_list:
-		# 					np.array(
-		# 						list(
-		# 							map(
-		# 								lambda ex: [ ex[-1] , ],
-		# 								b_list
-		# 							)
-		# 						)
-		# 					),
-		# 				bins_list
-		# 			)
-		# 		)
-		# 	)
 		x_y_per_week_dict[ 'overlap_39' ] =\
 			set_up_windowed_data_set(
 				bins_list,
@@ -2663,7 +2640,7 @@ def dump_results_main():
 				x_y_per_week_dict[ 'overlap_39' ][1],
 			)
 
-		a, b = pickle.load(open( './pca_data_sets/6.p' , 'rb' ))['train_valid_data_sets'][2:]
+		a, b = pickle.load(open( './pca_data_sets/8.p' , 'rb' ))['train_valid_data_sets'][2:]
 		valid_set_dict[ 'overlap_39' ] =\
 			reorder_valid_in_temporal_order(
 				x_y_whole_dict[ 'overlap_39' ][0],
@@ -2672,11 +2649,11 @@ def dump_results_main():
 				transform_array_only_last(b),
 			)[:2]
 
-		index_to_valid_dict[ 304 ] = 'overlap_39'
+		index_to_valid_dict[ 320 ] = 'overlap_39'
 
 		index_to_x_y_per_week_dict.update( index_to_valid_dict )
 
-# End: Set Up Dictionaries
+	# End: Set Up Dictionaries
 
 	global index_data_set_dict
 
@@ -2696,11 +2673,11 @@ def dump_results_main():
 
 	print('\n\n\nFinished preparing data !\n\n\n')
 
-# Start: Set up of available GPUs
+	# Start: Set up of available GPUs
 
 	gpu_tuple = ('/gpu:2',)
 
-# End: Set up of available GPUS
+	# End: Set up of available GPUS
 	global gpu_task_dict
 
 	gpu_task_dict = dict()
@@ -2720,7 +2697,12 @@ def dump_results_main():
 	)
 
 def analyse_data_set():
-
+	'''
+	Looks into differences in time and number of elements between
+	consecutive logged whole matrices. Difference in number of elements in
+	the whole (distance + demotion) matrices is due to the fact that storage
+	elemnts may be added or removed from the Grid.
+	'''
 	matrices_per_week_lists = pickle.load(open('./pca_dumps/whole_matrices.p','rb'))
 
 	# print(matrices_per_week_lists[0][0])
@@ -2734,34 +2716,6 @@ def analyse_data_set():
 	)
 
 	print( len(matrices_per_week_lists[0][0]) )
-
-	# reporting_time_diffs_per_week, cell_diffs_per_week =\
-	# 	list(), list()
-
-	# for ii,matrix_week in enumerate(matrices_per_week_lists):
-
-	# 	time_diff_list = list()
-	# 	cells_diff = list()
-
-	# 	for i in range( 1 , len(matrix_week) ):
-
-	# 		if WEEK_TIME_MOMENTS[ii][0] <= matrix_week[i][0] < WEEK_TIME_MOMENTS[ii][1]:
-
-	# 			time_diff_list.append(
-	# 				matrix_week[i][0] - matrix_week[i-1][0]
-	# 			)
-
-	# 			cells_diff.append(0)
-
-	# 			for p in zip( matrix_week[i][1] , matrix_week[i-1][1] ):
-	# 				if p[0] != p[1]:
-	# 					cells_diff[-1] += 1
-
-	# 	print('Finished week !')
-
-	# 	reporting_time_diffs_per_week.append( time_diff_list )
-
-	# 	cell_diffs_per_week.append( cells_diff )
 
 	reporting_time_diffs_per_week, cell_diffs_per_week=\
 	tuple(
@@ -2857,6 +2811,9 @@ def test_generator():
 	print( np.all(b == y_train[2:4] ))
 
 def dump_pca_info_for_plot():
+	'''
+	Does principal component analysis.
+	'''
 	week_0_list, week_1_list, week_2_list = pickle.load(open('./pca_dumps/whole_matrices.p','rb'))
 
 	pca_train_array = np.array(
@@ -2951,6 +2908,9 @@ def transform_to_csv():
 			file.write( str(t[1]) + '\n' )
 
 def train_main_1():
+	'''
+	Does single configuration train.
+	'''
 	# new_index = 283
 	#	recurrent network with sigmoid activation and LeakyReLU internal
 
@@ -2973,158 +2933,261 @@ def train_main_1():
 	# 	new 14000 data set 6th may
 	#   only ars and PC1 as input
 
-	new_index = 305
+	# new_index = 347
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 19th may
+	#   first 4 PCs with regularization
 
-	def get_model_2(ws, bins_no):
-		inp_layer = keras.layers.Input(shape=(ws, bins_no,))
-		x = keras.layers.TimeDistributed(
-			keras.layers.Dense(
-				units=bins_no,
-				activation='relu'
-			)
-		)(inp_layer)
-		x = keras.layers.BatchNormalization()(x)
-		# x = keras.layers.Dropout(0.01)(x)
+	# new_index = 348
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 19th may
+	#   first 4 PCs without regularization
 
-		x = keras.layers.Bidirectional(
-			keras.layers.LSTM(
-				units=bins_no,
-				return_sequences=True,
-			)
-		)(x)
-		x = keras.layers.BatchNormalization()(x)
+	# new_index = 358
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 19th may
+	#   ars and first 5 PCs without regularization aka :6
+	#	pe fep.upb.ro
 
-		x = keras.layers.TimeDistributed(
-			keras.layers.Dense(units=10,
-					activation='relu')
-		)(x)
-		x = keras.layers.BatchNormalization()(x)
+	# new_index = 359
+	#	recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 19th may
+	#   ars and first 5 PCs with regularization aka :6
+	#	pe fep.upb.ro
 
-		x = keras.layers.TimeDistributed(
-			keras.layers.Dense(units=5,
-					activation='relu')
-		)(x)
-		x = keras.layers.BatchNormalization()(x)
+	# new_index = 360
+	#	pc recurrent network with sigmoid activation and ReLU internal and only
+	#	one output
+	# 	new 14000 data set 19th may
+	#   ars and first 5 PCs with dropout aka :6
+	#	pe fep.upb.ro
 
-		x = keras.layers.Bidirectional(
-			keras.layers.LSTM(
-				units=1,
-				return_sequences=False,
-			)
-		)(x)
-		x = keras.layers.BatchNormalization()(x)
-
-		# x = keras.layers.TimeDistributed(
-		# 	keras.layers.Dense(units=1, activation='sigmoid')
-		# )(x)
-
-		x = keras.layers.Dense(units=1, activation='sigmoid')(x)
-
-		return keras.models.Model(inputs=inp_layer, outputs=x)
-
-	def get_model_3(ws, bins_no):
-		inp_layer = keras.layers.Input(shape=(ws, bins_no,))
-		x = keras.layers.TimeDistributed(
-			keras.layers.Dense(
-				units=bins_no,
-				activation='relu'
-			)
-		)(inp_layer)
-		x = keras.layers.BatchNormalization()(x)
-		# x = keras.layers.Dropout(0.01)(x)
-
-		x = keras.layers.Bidirectional(
-			keras.layers.LSTM(
-				units=bins_no,
-				return_sequences=False,
-			)
-		)(x)
-		x = keras.layers.BatchNormalization()(x)
-
-		x = keras.layers.Dense(units=1, activation='sigmoid')(x)
-
-		return keras.models.Model(inputs=inp_layer, outputs=x)
-
-	if False:
-		data_set = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
-	if True:
-		data_set = pickle.load(open('./pca_data_sets/6.p','rb'))['train_valid_data_sets']
-
-	if True:
-		data_set =\
-		(
-			data_set[0],
-			transform_array_only_last(data_set[1]),
-			data_set[2],
-			transform_array_only_last(data_set[3]),
-		)
-	if False:
-		data_set =\
-		(
-			data_set[0][:,:,1:],
-			data_set[1],
-			data_set[2][:,:,1:],
-			data_set[3],
-		)
-	if True:
-		data_set =\
-		(
-			data_set[0][:,:,:4],
-			data_set[1],
-			data_set[2][:,:,:4],
-			data_set[3],
-		)
-
-	model = get_model_3(
-		40,
-		4,
-	)
-
-	model.compile(
-		optimizer=keras.optimizers.Adam(),
-		loss='mean_absolute_percentage_error',
-		metrics=['mae',]
-	)
-
-	if False:
-		if False:
-			old_model_path = './pca_multiple_model_folders/models_283/model_0488.hdf5'
-		if False:
-			old_model_path = './pca_multiple_model_folders/models_303/model_0672.hdf5'
-		if True:
-			old_model_path = './pca_multiple_model_folders/models_304/model_0318.hdf5'
-
-		old_model = keras.models.load_model(old_model_path)
-
-		new_model_layers = list()
-		for i in range( len( model.layers ) ):
-			if model.layers[i].name.startswith('bidirectional')\
-				or model.layers[i].name.startswith('time_distributed'):
-				new_model_layers.append(i)
-
-		j = 0
-		for i in range( len( old_model.layers ) - 1):
-
-			if old_model.layers[i].name.startswith('bidirectional')\
-				or old_model.layers[i].name.startswith('time_distributed'):
-
-				model.layers[ new_model_layers[j] ].set_weights(old_model.layers[i].get_weights())
-
-				j += 1
-
-		del old_model
-
-	model.summary()
-
-	print('\n\n\n' + str(new_index) + '\n\n\n')
+	# new_index = 361
+	# encoder decoder attempt at new data set train
+	# 20000 examples
 
 	with tf.device('/gpu:1'):
+	# if True:
+
+		new_index = 359
+
+		def get_model_2(ws, bins_no):
+			inp_layer = keras.layers.Input(shape=(ws, bins_no,))
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(
+					units=bins_no,
+					activation='relu'
+				)
+			)(inp_layer)
+			x = keras.layers.BatchNormalization()(x)
+			# x = keras.layers.Dropout(0.01)(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=bins_no,
+					return_sequences=True,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(units=10,
+						activation='relu')
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(units=5,
+						activation='relu')
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=1,
+					return_sequences=False,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			# x = keras.layers.TimeDistributed(
+			# 	keras.layers.Dense(units=1, activation='sigmoid')
+			# )(x)
+
+			x = keras.layers.Dense(units=1, activation='sigmoid')(x)
+
+			return keras.models.Model(inputs=inp_layer, outputs=x)
+
+		def get_model_3(ws, bins_no):
+			inp_layer = keras.layers.Input(shape=(ws, bins_no,))
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(
+					units=bins_no,
+					activation='relu'
+				)
+			)(inp_layer)
+			x = keras.layers.BatchNormalization()(x)
+			x = keras.layers.Dropout(0.1)(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=bins_no,
+					return_sequences=True,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+			x = keras.layers.Dropout(0.1)(x)
+
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(
+					units=bins_no,
+					activation='relu'
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+			x = keras.layers.Dropout(0.1)(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=2,
+					return_sequences=False,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.Dense(units=1, activation='sigmoid')(x)
+
+			return keras.models.Model(inputs=inp_layer, outputs=x)
+
+		def get_model_3_with_regularizers(ws, bins_no):
+			inp_layer = keras.layers.Input(shape=(ws, bins_no,))
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(
+					units=bins_no,
+					activation='relu',
+					kernel_regularizer=keras.regularizers.l2(1e-4),
+					bias_regularizer=keras.regularizers.l2(1e-4),
+				)
+			)(inp_layer)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=bins_no,
+					return_sequences=True,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.TimeDistributed(
+				keras.layers.Dense(
+					units=bins_no,
+					activation='relu',
+					kernel_regularizer=keras.regularizers.l2(1e-4),
+					bias_regularizer=keras.regularizers.l2(1e-4),
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.Bidirectional(
+				keras.layers.LSTM(
+					units=2,
+					return_sequences=False,
+				)
+			)(x)
+			x = keras.layers.BatchNormalization()(x)
+
+			x = keras.layers.Dense(units=1, activation='sigmoid',
+					kernel_regularizer=keras.regularizers.l2(1e-4),
+					bias_regularizer=keras.regularizers.l2(1e-4),
+				)(x)
+
+			return keras.models.Model(inputs=inp_layer, outputs=x)
+
+		if False:
+			data_set = pickle.load(open('./pca_data_sets/5.p','rb'))[2]
+		if True:
+			data_set = pickle.load(open('./pca_data_sets/6.p','rb'))['train_valid_data_sets']
+
+		if True:
+			data_set =\
+			(
+				data_set[0],
+				transform_array_only_last(data_set[1]),
+				data_set[2],
+				transform_array_only_last(data_set[3]),
+			)
+		if False:
+			data_set =\
+			(
+				data_set[0][:,:,1:],
+				data_set[1],
+				data_set[2][:,:,1:],
+				data_set[3],
+			)
+		if True:
+			data_set =\
+			(
+				data_set[0][:,:,:6],
+				data_set[1],
+				data_set[2][:,:,:6],
+				data_set[3],
+			)
+
+		model = get_model_3_with_regularizers(
+			40,
+			6,
+		)
+
+		model.compile(
+			optimizer=keras.optimizers.Adam(),
+			loss='mean_absolute_percentage_error',
+			metrics=['mae',]
+		)
+
+		if True:
+			if new_index == 358:
+				old_model_path = './pca_multiple_model_folders/models_358/model_0254.hdf5'
+			if new_index == 359:
+				old_model_path = './pca_multiple_model_folders/models_359/model_0277.hdf5'
+			if new_index == 360:
+				old_model_path = './pca_multiple_model_folders/models_360/model_0340.hdf5'
+
+			old_model = keras.models.load_model(old_model_path)
+
+			new_model_layers = list()
+			for i in range( len( model.layers ) ):
+				if model.layers[i].name.startswith('bidirectional')\
+					or model.layers[i].name.startswith('time_distributed')\
+					or model.layers[i].name.startswith('dense'):
+					new_model_layers.append(i)
+
+			j = 0
+			for i in range( len( old_model.layers ) - 1):
+
+				if old_model.layers[i].name.startswith('bidirectional')\
+					or old_model.layers[i].name.startswith('time_distributed')\
+					or model.layers[i].name.startswith('dense'):
+
+					model.layers[ new_model_layers[j] ].set_weights(old_model.layers[i].get_weights())
+
+					j += 1
+
+			del old_model
+
+		model.summary()
+
+		print('\n\n\n' + str(new_index) + '\n\n\n')
 
 		model.fit(
 			x=data_set[0],
 			y=data_set[1],
 			batch_size=128,
-			epochs=2000,
+			epochs=700,
 			validation_data=(\
 				data_set[2],
 				data_set[3],
@@ -3205,6 +3268,9 @@ def test_reordering():
 	print( len( indexes_list ) )
 
 def get_differences_in_matrices():
+	'''
+	Get number of matrix files per week.
+	'''
 	week_list_dirs =\
 	tuple(
 		map(
@@ -3322,7 +3388,7 @@ def get_differences_in_matrices():
 if __name__ == '__main__':
 	global n_proc
 
-	n_proc = 95
+	n_proc = 1
 
 	# dump_nn_results(
 	# 	(
@@ -3350,19 +3416,27 @@ if __name__ == '__main__':
 	# 	'pca_multiple_model_folders/models_13/model_6455.hdf5'
 	# )
 
-	# hyper_parameters_sweep_train()
+	hyper_parameters_sweep_train()
+
+	# train_for_generator()
 
 	# train_main()
 
 	# train_main_1()
 
-	dump_results_main()
+	# dump_results_main()
 
 	# test_reordering()
 
 	# analyse_data_set()
 
 	# get_differences_in_matrices()
+
+	# dump_encoder_decoder_plot(328)
+
+	# get_min_max_time_moments_per_matrixes(('./log_folder_13th_may/',))
+
+	# get_read_size_from_all_queries()
 
 	if False:
 		with open('pca_what_is_what.txt', 'wt') as myfile:

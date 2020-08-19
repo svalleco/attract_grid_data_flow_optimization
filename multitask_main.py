@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 import csv
 
 def analyse_thp_0():
+	'''
+	Returns some statistics about the throughput from the
+	throughput csv files.
+	'''
 	thp_list = pickle.load(open('cern_throughput_per_site_list.p','rb'))
 
 	min_clients = 2000
@@ -58,6 +62,10 @@ def analyse_thp_0():
 	print(max_count)
 
 def analyse_thp_1():
+	'''
+	Plots read size per time moment. The 'pipe_3.p' should
+	contain an iterable of pairs like: (time moment,read size).
+	'''
 	cern_rs_list = pickle.load(open('pipe_3.p','rb'))
 
 	min_v, max_v =\
@@ -116,6 +124,9 @@ def analyse_thp_1():
 	plt.show()
 
 def analyse_q_emitted_by_cern_0():
+	'''
+	Extracts CERN related throughput values per time moment.
+	'''
 	q_dict = dict()
 	for ts, thp in map(
 			lambda e: (e[0],e[-1],),
@@ -135,6 +146,9 @@ def analyse_q_emitted_by_cern_0():
 	)
 
 def analyse_q_emitted_by_cern_1():
+	'''
+	Prints all the available SEs.
+	'''
 	s = set()
 	for first_option in map(
 		lambda e: e[2][0],
@@ -146,6 +160,9 @@ def analyse_q_emitted_by_cern_1():
 		print(se)
 
 def get_thp_per_proc_2(i):
+	'''
+	Agregates throughput per spool file.
+	'''
 	g_return_list.extend(
 		tuple(
 			filter(
@@ -168,6 +185,17 @@ def get_thp_per_proc_2(i):
 	)
 
 def get_throughput_2(first_moment, last_moment, client_name):
+	'''
+	In the spool directory, the MonALISA local agent logs multiple files. This
+	function extracts the throughput between a time interval from those files
+	in parallel.
+
+	first_moment, last_moment
+		Integers defining the interval
+
+	client_name
+		String that defines the name of a client of queries
+	'''
 	spool_dir_path = '../remote_host/spool/'
 
 	global filename_list, g_client_name, g_first_moment, g_last_moment,\
@@ -223,6 +251,14 @@ def get_throughput_2(first_moment, last_moment, client_name):
 	)
 
 def get_thp_dump_based_on_interp(first_moment,last_moment):
+	'''
+	DEPRECATED
+
+	The throughput is supposed to be reported at 2 minutes interval. However,
+	if the throughput value does not change from one point in time to the next,
+	then MonALISA does not log the same value multiple times. This function
+	attempts to interpolate for the "missing" throughput values which is incorrect.
+	'''
 	interp_func_dict = list()
 	for from_name,thp_list in pickle.load(open('cern_site_thp_list_dict.p','rb')).items():
 		interp_func_dict.append(
@@ -254,6 +290,9 @@ def get_thp_dump_based_on_interp(first_moment,last_moment):
 	)
 
 def analyse_thp_2():
+	'''
+	Agregates multiple quantities and dumps them.
+	'''
 	read_size_list = pickle.load(open('first_option_cern_only_read_size.p','rb'))
 
 	prev = read_size_list[0][0]

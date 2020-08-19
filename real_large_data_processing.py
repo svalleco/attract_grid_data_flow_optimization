@@ -11,8 +11,14 @@ from collections import namedtuple
 from copy import deepcopy
 import random
 from scipy import interpolate
+import itertools
+
+DATA_SETS_FOLDER = '/optane/mipopa/data_set_dumps/'
 
 def get_unanswered_queries_main(client_name):
+	'''
+	Parses a raw query file.
+	'''
 	pickle.dump(
 		tuple(
 			map(
@@ -40,6 +46,9 @@ def get_unanswered_queries_main(client_name):
 	)
 
 def get_unanswered_queries_main_1(client_name):
+	'''
+	Parses a raw query file.
+	'''
 	global file_variable
 
 	if False:
@@ -119,7 +128,11 @@ def get_unanswered_queries_main_1(client_name):
 	)
 
 def process_per_proc(i):
-	f = open( './unanswered_query_dump_folder/' + str(i) + '.json' , 'wt' )
+	'''
+	Parses a raw query file per CPU core. Used inside a processes pool.
+	'''
+	# f = open( './unanswered_query_dump_folder/' + str(i) + '.json' , 'wt' )
+	f = open( g_dump_folder_name + str(i) + '.json' , 'wt' )
 	json.dump(
 		tuple(
 			map(
@@ -155,6 +168,9 @@ def process_per_proc(i):
 	gc.collect()
 
 def analyse_per_proc(i):
+	'''
+	Counts queries per CPU core. Used inside a processes pool.
+	'''
 	l =\
 	len(
 		tuple(
@@ -175,12 +191,20 @@ def analyse_per_proc(i):
 	print('Between ' + str(g_idexes_pairs_tuple[i][0]) + ' and ' + str(g_idexes_pairs_tuple[i][1]) + ' there are ' + str(l))
 	return l
 
-def get_unanswered_queries_main_2(client_name):
-	global file_variable, g_idexes_pairs_tuple, g_client_name
+def get_unanswered_queries_main_2(client_name, dump_folder_name, input_file_name='apicommands.log'):
+	'''
+	Parses a raw query file. Uses a pool of processes.
+	'''
+
+	# 40GB -> 450m49.952s
+
+	global file_variable, g_idexes_pairs_tuple, g_client_name, g_dump_folder_name
+
+	g_dump_folder_name = dump_folder_name
 
 	g_client_name = client_name
 
-	file_variable = open('apicommands.log','rt').read()
+	file_variable = open(input_file_name,'rt').read()
 	# len(file_variable) = 318007736
 
 	file_variable = file_variable.split('\n')[1:]
@@ -216,8 +240,11 @@ def get_unanswered_queries_main_2(client_name):
 			)
 		)
 
-def get_matrices_time_moments_lists(first_moment, last_moment):
-	filename_tuple = tuple(os.listdir('./remote_host/log_folder/'))
+def get_matrices_time_moments_lists(first_moment, last_moment, matrices_folder):
+	'''
+	Trims and returns matrices coording to time moments.
+	'''
+	filename_tuple = tuple(os.listdir(matrices_folder))
 	distance_list = list(
 		map(
 			lambda e: int(e.split('_')[0]),
@@ -257,7 +284,7 @@ def get_matrices_time_moments_lists(first_moment, last_moment):
 
 	return distance_list, demotion_list
 
-def get_dist_dict_by_time(time_moment):
+def get_dist_dict_by_time(time_moment,matrices_folder):
 	d = dict()
 	for cl, se, val in\
 		map(
@@ -266,7 +293,7 @@ def get_dist_dict_by_time(time_moment):
 				lambda e: (e[0], e[1].split('::')[1:], float(e[2]),),
 				map(
 					lambda r: r.split(';'),
-					open('./remote_host/log_folder/' + str(time_moment) + '_distance','r').read().split('\n')[1:-1]
+					open(matrices_folder + str(time_moment) + '_distance','r').read().split('\n')[1:-1]
 				)
 			)
 		):
@@ -276,7 +303,7 @@ def get_dist_dict_by_time(time_moment):
 			d[cl] = { se : val }
 	return d
 
-def get_dem_dict_by_time(time_moment):
+def get_dem_dict_by_time(time_moment,matrices_folder):
 	d = dict()
 	for se, val in\
 		map(
@@ -285,24 +312,28 @@ def get_dem_dict_by_time(time_moment):
 				lambda e: (e[0].split('::')[1:], float(e[3]),),
 				map(
 					lambda r: r.split(';'),
-					open('./remote_host/log_folder/' + str(time_moment) + '_demotion','r').read().split('\n')[1:-1]
+					open(matrices_folder + str(time_moment) + '_demotion','r').read().split('\n')[1:-1]
 				)
 			)
 		):
 		d[se] = val
 	return d
 
-def get_matrices(first_moment, last_moment):
+def get_matrices(first_moment, last_moment, matrices_folder):
 
-	distance_list, demotion_list = get_matrices_time_moments_lists(first_moment, last_moment)
+	distance_list, demotion_list = get_matrices_time_moments_lists(
+		first_moment,
+		last_moment,
+		matrices_folder
+	)
 
 	dist_res_list = []
 	for time_moment in distance_list:
-		dist_res_list.append((time_moment,get_dist_dict_by_time(time_moment),))
+		dist_res_list.append((time_moment,get_dist_dict_by_time(time_moment,matrices_folder),))
 
 	dem_res_list = []
 	for time_moment in demotion_list:
-		dem_res_list.append((time_moment,get_dem_dict_by_time(time_moment),))
+		dem_res_list.append((time_moment,get_dem_dict_by_time(time_moment,matrices_folder),))
 
 	return dist_res_list, dem_res_list
 
@@ -327,7 +358,9 @@ def binary_search_matrixes(matrix_list, time_moment, left_i, right_i):
 	)
 
 def answer_per_proc(aaaa):
-
+	'''
+	Answers queries based on the 2 matrices per CPU core. Used inside a processes pool.
+	'''
 	queries_list = list(
 		map(
 			lambda q_line:\
@@ -340,7 +373,7 @@ def answer_per_proc(aaaa):
 			filter(
 				lambda p: p[0] >= g_first_moment,
 				json.load(
-					open('./unanswered_query_dump_folder/' + g_file_list[aaaa],'rt')
+					open(g_input_folder + g_file_list[aaaa],'rt')
 				)
 			)
 		)
@@ -349,13 +382,21 @@ def answer_per_proc(aaaa):
 	dist_i = 0
 	dem_i = 0
 
+	res_list = list()
+
 	for i in range(len(queries_list)):
+
+		found_client = False
 
 		ref_dict = g_dist_list[-1][1]
 		for k in ref_dict.keys():
-			if queries_list[i][1] in k:
+			if queries_list[i][1] in k or k in queries_list[i][1]:
 				client_name = k
+				found_client = True
 				break
+
+		if not found_client:
+			continue
 
 		if queries_list[i][0] >= g_dist_list[-1][0]:
 			local_dist_dict = ref_dict[client_name]
@@ -389,37 +430,86 @@ def answer_per_proc(aaaa):
 			j+=1
 		se_list.sort(key=lambda p: p[0])
 
-		queries_list[i] = (
-			queries_list[i][0],
-			queries_list[i][1],
-			tuple(map(lambda p: queries_list[i][2][p[1]], se_list)),
-			queries_list[i][3],
-		)
+		if False:
+			queries_list[i] = (
+				queries_list[i][0],
+				queries_list[i][1],
+				tuple(map(lambda p: queries_list[i][2][p[1]], se_list)),
+				queries_list[i][3],
+			)
+		if True:
+			res_list.append(
+				(
+					queries_list[i][0],
+					queries_list[i][1],
+					tuple(map(lambda p: queries_list[i][2][p[1]], se_list)),
+					queries_list[i][3],
+				)
+			)
 
 	json.dump(
-		tuple(queries_list),
-		open('./answered_query_dump_folder/' + g_file_list[aaaa], 'wt'),
+		tuple(res_list),
+		open(g_output_folder + g_file_list[aaaa], 'wt'),
 	)
+
+	del queries_list
 
 	print('Finished for: ' + g_file_list[aaaa])
 
 	gc.collect()
 
-def get_answered_queries_main_1(first_moment, last_moment):
-	global g_dist_list, g_dem_list, g_file_list, g_first_moment
+def analyse_before_answer_0(aaaa):
+	'''
+	Runs inside processes pool.
+	'''
+	return\
+	len(
+		tuple(
+			filter(
+				lambda p: p[0] >= g_first_moment and len(p[1]) <= 2,
+				json.load(
+					open(g_input_folder + g_file_list[aaaa],'rt')
+				)
+			)
+		)
+	)
+
+def get_answered_queries_main_1(first_moment, last_moment, input_folder, output_folder, matrices_folder):
+	'''
+	Answers in parallel.
+	'''
+
+	'''
+	16GB -> 6m35.779s
+			5m4.435s
+	'''
+
+	global g_dist_list, g_dem_list, g_file_list, g_first_moment, g_input_folder, g_output_folder
+
+	g_input_folder = input_folder
+	g_output_folder = output_folder
 
 	g_first_moment = first_moment
 
-	g_dist_list, g_dem_list = get_matrices(first_moment, last_moment)
+	if True:
+		g_dist_list, g_dem_list = get_matrices(first_moment, last_moment, matrices_folder)
+
+		print('There are ' + str(len(g_dist_list)) + ' distance matrices !')
+		print('There are ' + str(len(g_dem_list)) + ' demotion matrices !')
 
 	g_file_list = tuple(\
 		map(
 			lambda fn: fn,
-			os.listdir('./unanswered_query_dump_folder/')
+			os.listdir(input_folder)
 		)
 	)
 
-	Pool(n_proc).map(answer_per_proc, range(len(g_file_list)))
+	print('Will start pool !')
+
+	if True:
+		Pool(n_proc).map(answer_per_proc, range(len(g_file_list)))
+	if False:
+		print(sum(Pool(n_proc).map(analyse_before_answer_0, range(len(g_file_list)))))
 
 def analyse_dist_dem(first_moment, last_moment):
 	matrixes_list = os.listdir('remote_host/log_folder')
@@ -450,31 +540,90 @@ def analyse_dist_dem(first_moment, last_moment):
 
 	print(str(min(dem_list)) + ' ' + str(max(dem_list)))
 
-def get_first_option_cern():
+def get_first_option_cern_0(input_folder, output_file):
+	'''
+	16GB -> 128m53.432s
+	'''
 	json.dump(
 		sorted(
 			reduce(
-				lambda acc,x: acc + x,
+				lambda acc,x: acc + list(x),
 				map(
 					lambda fn:\
-						tuple(
-							filter(
-								lambda q_line: 'cern' in q_line[2][0][0],
-								json.load(
-									open(
-										'./answered_query_dump_folder/' + fn,
-										'rt'
-									)
+						filter(
+							lambda q_line: 'cern' in q_line[2][0][0],
+							json.load(
+								open(
+									input_folder + fn,
+									'rt'
 								)
 							)
 						),
-					os.listdir('./answered_query_dump_folder/')
+					sorted(os.listdir(input_folder))
 				),
-				tuple()
+				list()
 			)
 		),
 		open(
-			'first_option_cern.json',
+			output_file,
+			'wt'
+		)
+	)
+
+def get_first_option_cern_1(input_folder, output_file):
+	a_list = list()
+
+	i = 0
+
+	for filtered_generator in map(
+			lambda fn:\
+				filter(
+					lambda q_line: 'cern' in q_line[2][0][0],
+					json.load(
+						open(
+							input_folder + fn,
+							'rt'
+						)
+					)
+				),
+			sorted(os.listdir(input_folder))
+		):
+
+		print(i)
+
+		a_list.extend( filtered_generator )
+
+		i+=1
+
+	json.dump(
+		sorted(a_list),
+		open(
+			output_file,
+			'wt'
+		)
+	)
+
+def get_first_option_cern_2(input_folder, output_file):
+	json.dump(
+		sorted(
+			itertools.chain.from_iterable(
+				map(
+					lambda fn:\
+						filter(
+							lambda q_line: 'cern' in q_line[2][0][0],
+							json.load(
+								open(
+									input_folder + fn,
+									'rt'
+								)
+							)
+						),
+					sorted(os.listdir(input_folder))
+				)
+			)
+		),
+		open(
+			output_file,
 			'wt'
 		)
 	)
@@ -610,6 +759,51 @@ def reduce_query_list_size():
 			)
 		),
 		open('first_opt_cern_only_read_value.json','wt')
+	)
+
+def reduce_query_list_size_1(input_fn, output_fn):
+	'''
+	27 minutes
+	22 min
+	'''
+	d = dict()
+	for tm, _, _, rs in json.load(open(input_fn,'rt')):
+		if tm not in d:
+			d[tm] = rs
+		else:
+			d[tm] += rs
+	json.dump(
+		sorted(d.items()),
+		open(output_fn,'wt')
+	)
+
+def reduce_query_list_size_2(input_folder, output_fn):
+	'''
+	10m43.830s
+	'''
+	d = dict()
+	for generator_from_file in\
+		map(
+			lambda fn:\
+				filter(
+					lambda q_line: 'cern' in q_line[2][0][0],
+					json.load(
+						open(
+							input_folder + fn,
+							'rt'
+						)
+					)
+				),
+			sorted(os.listdir(input_folder))
+		):
+		for tm, _, _, rs in generator_from_file:
+			if tm not in d:
+				d[tm] = rs
+			else:
+				d[tm] += rs
+	json.dump(
+		sorted(d.items()),
+		open(output_fn,'wt')
 	)
 
 def bins_per_proc(ii):
@@ -922,9 +1116,7 @@ def get_five_minute_binned_dataset_2(
 		open(out_fn,'wt')
 	)
 
-def normalize_data_set(in_filename, out_fn='first_week_normalized_data_set.json'):
-	data_set_tuple = json.load(open(in_filename,'rt'))
-
+def normalize_data_set(data_set_tuple, out_fn='first_week_normalized_data_set.json'):
 	min_rs = data_set_tuple[0][0]
 	max_rs = data_set_tuple[0][0]
 
@@ -955,6 +1147,256 @@ def normalize_data_set(in_filename, out_fn='first_week_normalized_data_set.json'
 			)
 		),
 		open(out_fn,'wt')
+	)
+
+def normalize_filter_split_from_cont_list(bins_list, remaining_bins_no, time_window, output_fn):
+	import itertools
+	import numpy as np
+
+	min_rs, max_rs = bins_list[0][0][0], bins_list[0][0][0]
+
+	min_thp, max_thp = bins_list[0][0][-1], bins_list[0][0][-1]
+
+	for b_list in bins_list:
+		for e in b_list:
+			a = min(e[:-1])
+			if a < min_rs: min_rs = a
+			a = max(e[:-1])
+			if a > max_rs: max_rs = a
+			if min_thp > e[-1]: min_thp = e[-1]
+			if max_thp < e[-1]: max_thp = e[-1]
+
+	if False:
+		bins_list =\
+		list(
+			map(
+				lambda b_list:\
+					list(
+						map(
+							lambda e:\
+								tuple(
+									map(
+										lambda a: 2*(a-min_rs)/(max_rs-min_rs)-1,
+										e[:-1]
+									)
+								)\
+								+ ( 2*(e[-1]-min_thp)/(max_thp-min_thp)-1 , ),
+							b_list
+						)
+					),
+				bins_list
+			)
+		)
+
+		top_k_set =\
+		set(
+			map(
+				lambda p: p[0],
+				sorted(
+						enumerate(
+							map(
+								lambda ind:
+									float(
+										np.correlate(
+											list(map(lambda e: e[ind], itertools.chain.from_iterable(bins_list))),
+											list(map(lambda e: e[-1], itertools.chain.from_iterable(bins_list))),
+										)
+									),
+								range(len(bins_list[0][0])-1)
+							)
+						)
+					,
+					key=lambda p: p[1],
+					reverse=True
+				)[:remaining_bins_no]
+			)
+		)
+
+		bins_list = list(
+			map(
+				lambda b_list:\
+					list(
+						map(
+							lambda bins:\
+								tuple(
+									map(
+										lambda p: p[1],
+										filter(
+											lambda e: e[0] in top_k_set,
+											enumerate(bins[:-1])
+										)
+									)
+								)\
+								+ ( ( bins[-1] + 1 ) / 2 , ),
+							b_list
+						)
+					),
+				bins_list
+			)
+		)
+
+	if True:
+		bins_list =\
+		list(
+			map(
+				lambda b_list:\
+					list(
+						map(
+							lambda e:\
+								tuple(
+									map(
+										lambda a: 2*(a-min_rs)/(max_rs-min_rs)-1,
+										e[:-1]
+									)
+								)\
+								+ ( (e[-1]-min_thp)/(max_thp-min_thp) , ),
+							b_list
+						)
+					),
+				bins_list
+			)
+		)
+
+	indexes_dict = {
+		( 0 , 0.05) : list(),
+		( 0.05 , 0.1 ) : list(),
+		( 0.1 , 0.15 ) : list(),
+		( 0.15 , 0.2 ) : list(),
+		( 0.2 , 0.25 ) : list(),
+		( 0.25 , 0.3 ) : list(),
+		( 0.3 , 0.35 ) : list(),
+		( 0.35 , 0.4 ) : list(),
+		( 0.4 , 0.45 ) : list(),
+		( 0.45 , 0.5 ) : list(),
+		( 0.5 , 0.55 ) : list(),
+		( 0.55 , 0.6 ) : list(),
+		( 0.6 , 0.65 ) : list(),
+		( 0.65 , 0.7 ) : list(),
+		( 0.7 , 0.75 ) : list(),
+		( 0.75 , 0.8 ) : list(),
+		( 0.8 , 0.85 ) : list(),
+		( 0.85 , 0.9 ) : list(),
+		( 0.9 , 0.95 ) : list(),
+		( 0.95 , 1.05 ) : list(),
+	}
+
+	new_bin_list = list()
+
+	i = 0
+	for b_list in bins_list:
+		for j in range(len(b_list)-time_window):
+
+			new_bin_list.append(list())
+
+			mean_v = 0
+
+			for l in range( j , j + time_window , 1 ):
+
+				new_bin_list[-1].append(list())
+
+				for e in b_list[ l ]:
+					new_bin_list[-1][-1].append(e)
+
+				mean_v += b_list[ l ][-1]
+
+			mean_v /= time_window
+
+			if True:
+				mean_v = b_list[ j + time_window - 1 ][-1]
+
+			for k in indexes_dict.keys():
+
+				if k[0] <= mean_v < k[1]:
+
+					indexes_dict[k].append(i)
+
+			i+=1
+
+	bins_list = new_bin_list
+
+	for k,v in indexes_dict.items():
+		print(str(k) + ' ' + str(len(v)))
+
+	valid_indexes_list = []
+	for indexes_list in indexes_dict.values():
+		if len(indexes_list) > 1:
+			if len(indexes_list) == 2:
+				valid_indexes_list.append(
+					random.choice(indexes_list)
+				)
+			else:
+				a = 0.2 * len(indexes_list)
+				if a < 1:
+					valid_indexes_list.append(
+						random.choice(indexes_list)
+					)
+				else:
+					valid_indexes_list += random.sample(
+						indexes_list, round(a)
+					)
+
+	train_indexes_list = list(
+		filter(lambda e: e not in valid_indexes_list, range(len(bins_list)))
+	)
+
+	print(len(train_indexes_list))
+
+	print(len(valid_indexes_list))
+
+	print(str(len(bins_list)) + ' ' + str(len(bins_list[0])) + ' ' + str(len(bins_list[0][0])))
+
+	if True:
+		get_x_f = lambda indexes_l:\
+		list(
+			map(
+				lambda p:\
+					list(
+						map(
+							lambda e: e[:-1],
+							p[1]
+						)
+					),
+				filter(
+					lambda p: p[0] in indexes_l,
+					enumerate(bins_list)
+				)
+			)
+		)
+		get_y_f = lambda indexes_l:\
+		list(
+			map(
+				lambda p:\
+					list(
+						map(
+							lambda e: [e[-1],],
+							p[1]
+						)
+					),
+				filter(
+					lambda p: p[0] in indexes_l,
+					enumerate(bins_list)
+				)
+			)
+		)
+
+		train_x_list, train_y_list, valid_x_list, valid_y_list =\
+			get_x_f(train_indexes_list),\
+			get_y_f(train_indexes_list),\
+			get_x_f(valid_indexes_list),\
+			get_y_f(valid_indexes_list)
+
+	get_lens_f=lambda l: str(len(l)) + ' ' + str(len(l[0])) + ' ' + str(len(l[0][0]))
+
+	print(get_lens_f(train_x_list))
+	print(get_lens_f(train_y_list))
+	print(get_lens_f(valid_x_list))
+	print(get_lens_f(valid_y_list))
+
+	json.dump(
+		(train_x_list, train_y_list, valid_x_list, valid_y_list,),
+		open(
+			output_fn, 'wt'
+		)
 	)
 
 def normalize_data_set_1(in_filename, out_fn='first_week_normalized_data_set.json'):
@@ -1595,6 +2037,11 @@ def get_five_minute_binned_dataset_3(
 	)
 
 def bins_per_proc_4(ii):
+	'''
+	Extracts bins per CPU core. It is runs inside a process pool. It uses a
+	sliding window to go through the temporally ordered queries and assign
+	their read size to bins which in turn are assigned to logged throughputs.
+	'''
 	Bin_Element = namedtuple('Bin_El',['ind','fi_t','la_t','thp_t','ipc_elem','thp_v', 'thp_i'])
 
 	slice_start = g_slice_list[ ii ][ 0 ]
@@ -1703,6 +2150,19 @@ def get_five_minute_binned_dataset_4(
 	millis_interval_start=4000000,
 	millis_interval_end=0,
 	number_of_bins_per_thp=100,):
+	'''
+	Assigns queries into bins and bins to throughput values.
+
+	first_moment,last_moment
+		Make up the temporal points between which bins are put.
+
+	millis_interval_start,millis_interval_end
+		Define the interval in miliseconds the bis span. For a throughput value received
+		at time t, the interval is [ t - millis_interval_start ; t - millis_interval_end ).
+
+	number_of_bins_per_thp
+		Number of equally sized bins to split the interval into.
+	'''
 
 	global g_thp_list, g_query_list, g_slice_list,\
 		g_number_of_bins_per_thp, g_bin_length_in_time, g_millis_interval_start,\
@@ -1928,6 +2388,252 @@ def compare_unanswered_answered_counts():
 		)
 	)
 
+def time_moments_from_unanswered_queries(folder_name):
+	min_tm, max_tm =\
+	reduce(
+		lambda pair_acc, x:\
+			( min((pair_acc[0], x)) , max((pair_acc[1], x)) , ) if len(pair_acc) != 0\
+			else (x,x,),
+		json.load(open(folder_name + '200.json','rt')) +  json.load(open(folder_name + '0.json','rt')),
+		tuple()
+	)
+
+	print(min_tm)
+	print(max_tm)
+
+def analyse_unasnwered_per_proc(i):
+	cl_count, rs_size, number_of_qs, total_rs = 0, 0, 0, 0
+	for _ , cl , _ , rs in json.load(open('unanswered_query_dump_folder_1/' + filename_list[i],'rt')):
+		if len(cl) <= 2:
+			cl_count += 1
+			rs_size += rs
+		number_of_qs += 1
+		total_rs += rs
+
+	return (cl_count, rs_size, number_of_qs,total_rs,)
+
+def analyse_unasnwered_querries():
+
+	global filename_list
+
+	filename_list = os.listdir('unanswered_query_dump_folder_1/')
+
+	res_list = Pool(n_proc).map(
+		analyse_unasnwered_per_proc,
+		range(len(filename_list))
+	)
+
+	print(
+		'# 0-client: ' + str(sum(map(lambda p: p[0], res_list))) + '/' + str(sum(map(lambda p: p[2], res_list)))\
+		+ ' -> ' + str( sum(map(lambda p: p[0], res_list)) / sum(map(lambda p: p[2], res_list)) )
+	)
+
+	print(
+		'rs: ' + str(sum(map(lambda p: p[1], res_list))) + '/' + str(sum(map(lambda p: p[3], res_list)))\
+		+ ' -> ' + str( sum(map(lambda p: p[1], res_list)) / sum(map(lambda p: p[3], res_list)) )
+	)
+
+def external_bin_main(query_file, output_file, thp_file, time_len, bins_no):
+	from binning_main import get_five_minute_binned_dataset_5
+
+	query_list = tuple(
+		json.load(
+			open(
+				query_file,
+				'rt'
+			)
+		)
+	)
+
+	first_moment, last_moment = query_list[0][0], query_list[-1][0]
+
+	print('first_moment = ' + str(first_moment) + ' , last_moment = ' + str(last_moment))
+
+	if True:
+		thp_gen = csv.reader(open(thp_file))
+
+		next(thp_gen)
+
+		a_list, b_list = list(), list()
+
+		for line in thp_gen:
+			if len(line) == 2:
+				a = 1000 * int(line[0])
+				if first_moment + time_len <= a < last_moment:
+					a_list.append(a)
+					b_list.append(float(line[1]))
+
+		thp_func = interpolate.interp1d(a_list,b_list)
+
+		thp_list = list()
+
+		t = a_list[0]
+
+		while t <= a_list[-1]:
+
+			thp_list.append(
+				(
+					t,
+					float(thp_func(t)),
+				)
+			)
+
+			t += 120000
+
+		thp_list = tuple(thp_list)
+
+		del thp_func
+		del a_list
+		del b_list
+		del t
+
+	if False:
+		from statsmodels.tsa.seasonal import seasonal_decompose
+
+		thp_gen = csv.reader(open(thp_file))
+
+		next(thp_gen)
+
+		a_list, b_list = list(), list()
+
+		for line in thp_gen:
+			if len(line) == 2:
+				a_list.append(1000 * int(line[0]))
+				b_list.append(float(line[1]))
+
+		thp_func = interpolate.interp1d(a_list,b_list)
+
+		thp_list = list()
+
+		t = a_list[0]
+
+		while t <= a_list[-1]:
+
+			thp_list.append(
+				(
+					t,
+					float(thp_func(t)),
+				)
+			)
+
+			t += 120000
+
+		del a_list
+		del b_list
+		del t
+
+		thp_list=\
+		list(
+			map(
+				lambda p: ( p[1][0] , p[0] , ) ,
+				filter(
+					lambda p: str(p[0]) != 'nan'\
+						and first_moment + time_len <= p[1][0] < last_moment,
+					zip(
+						seasonal_decompose(
+							tuple(
+								map(
+									lambda e: e[1],
+									thp_list
+								)
+							),
+							model='additive',
+							freq=4260
+						).trend,
+						thp_list
+					)
+				)
+			)
+		)
+
+	gc.collect()
+
+	get_five_minute_binned_dataset_5(
+		query_list,
+		thp_list,
+		output_file,
+		first_moment,
+		last_moment,
+		n_proc,
+		time_len,
+		0,
+		bins_no,
+	).join()
+
+def test_binning_algo(query_file, thp_file, time_len, bins_no):
+	query_list =\
+	json.load(
+		open(
+			query_file,
+			'rt'
+		)
+	)[:1000]
+
+
+	first_moment, last_moment = query_list[0][0], query_list[-1][0]
+
+	print('first_moment = ' + str(first_moment) + ' , last_moment = ' + str(last_moment))
+
+	thp_gen = csv.reader(open(thp_file))
+
+	next(thp_gen)
+
+	a_list, b_list = list(), list()
+
+	for line in thp_gen:
+		if len(line) == 2:
+			a = 1000 * int(line[0])
+			if first_moment + time_len <= a < last_moment:
+				a_list.append(a)
+				b_list.append(float(line[1]))
+
+	thp_func = interpolate.interp1d(a_list,b_list)
+
+	thp_list = list()
+
+	t = a_list[0]
+
+	while t <= a_list[-1]:
+
+		thp_list.append(
+			(
+				t,
+				float(thp_func(t)),
+			)
+		)
+
+		t += 120000
+
+	thp_list = tuple(thp_list)
+
+	del thp_func
+	del a_list
+	del b_list
+	del t
+
+	bins_list = []
+
+	for _ in range(len(thp_list)):
+		bins_list.append( bins_no * [0,] )
+
+	bin_time_interval = time_len / bins_no
+
+	for q_time, rs in query_list:
+		i = 0
+		for t_time, thp in thp_list:
+			if t_time - time_len <= q_time < t_time:
+
+				t = t_time - time_len
+
+				for j in range(bins_no):
+
+					if t <= q_time < t + bin_time_interval:
+
+						bins_list[i] += rs
+
+					t += bin_time_interval
+
+			i+=1
 
 if __name__ == '__main__':
 	if True:
@@ -1936,6 +2642,12 @@ if __name__ == '__main__':
 	if False:
 		# one day
 		first_moment, last_moment = 1576450800000, 1576537200000
+	if False:
+		# second week
+		first_moment, last_moment = 1580511600000, 1581289199000
+	if False:
+		# third week
+		first_moment, last_moment = 1581289199000, 1581697742233
 
 	global n_proc
 
@@ -1943,13 +2655,30 @@ if __name__ == '__main__':
 
 	if False: get_unanswered_queries_main_1('cern')
 
-	if False: get_unanswered_queries_main_2('cern')
+	if False:
+		get_unanswered_queries_main_2(
+			'cern',
+			'./unanswered_query_dump_folder_2/',
+			'/data/mipopa/apicommands3.log',
+		)
 
-	if False: get_answered_queries_main_1(first_moment, last_moment)
+	if False:
+		get_answered_queries_main_1(
+			first_moment,
+			last_moment,
+			'./unanswered_query_dump_folder_1/',
+			'./answered_query_dump_folder_1/',
+			# '/data/mipopa/remote_host/log_folder/',
+			'./remote_host_1/log_folder/',
+		)
 
 	if False: analyse_dist_dem(first_moment, last_moment)
 
-	if False: get_first_option_cern()
+	if False:
+		get_first_option_cern_2(
+			'/data/mipopa/answered_query_dump_folder_0/',
+			'./week_0_first_option_cern_queries.json'
+		)
 
 	if False: get_five_minute_binned_dataset_2(first_moment,last_moment)
 
@@ -1964,11 +2693,6 @@ if __name__ == '__main__':
 
 	if False: reduce_query_list_size()
 
-	if False:
-		normalize_data_set(
-			'first_week_data_set_100k_interp.json',
-			'first_week_normalized_data_set_100k_interp.json'
-		)
 	if False:
 		normalize_data_set_1(
 			'first_week_data_set_trend_seasonal_noise.json',
@@ -1997,8 +2721,8 @@ if __name__ == '__main__':
 
 	if False:
 		split_indexes(
-			json.load(open('first_week_normalized_data_set_100k_interp.json','rt')),
-			'first_week_train_test_indexes_split_100k_interp.p'
+			json.load(open('three_weeks_normalized_data_set.json','rt')),
+			'three_weeks_train_test_indexes_split.p'
 		)
 
 	if False:
@@ -2043,3 +2767,98 @@ if __name__ == '__main__':
 			)
 		)
 		split_indexes(a_list, 'first_week_train_test_indexes_split_cern_all_clients.p')
+
+	if False:
+		time_moments_from_unanswered_queries('/optane/mipopa/unanswered_query_dump_folder_1/')
+
+	if False:
+		analyse_new_raw_querries()
+
+	if False:
+		import sys
+
+		reduce_query_list_size_1(
+			'week_'+sys.argv[1]+'_first_option_cern_queries.json',
+			'week_'+sys.argv[1]+'_first_option_cern_only_read.json'
+		)
+
+	if False:
+		'''
+		0m25.955s
+		'''
+		normalize_data_set(
+			json.load(open('week_0_first_option_cern_data_set.json','rt'))\
+			+ json.load(open('week_1_first_option_cern_data_set.json','rt'))\
+			+ json.load(open('week_2_first_option_cern_data_set.json','rt')),
+			'three_weeks_normalized_data_set.json'
+		)
+
+	if True:
+		out_0_fn, out_1_fn, out_2_fn =\
+			'week_0_first_option_cern_data_set.json',\
+			'week_1_first_option_cern_data_set.json',\
+			'week_2_first_option_cern_data_set.json',
+
+	if False:
+		external_bin_main(
+			DATA_SETS_FOLDER+'week_0_first_option_cern_only_read.json',
+			DATA_SETS_FOLDER+out_0_fn,
+			'january_month_throughput.csv',
+			4000000,
+			90,
+
+		)
+		external_bin_main(
+			DATA_SETS_FOLDER+'week_1_first_option_cern_only_read.json',
+			DATA_SETS_FOLDER+out_1_fn,
+			'february_month.csv',
+			4000000,
+			90,
+		)
+		external_bin_main(
+			DATA_SETS_FOLDER+'week_2_first_option_cern_only_read.json',
+			DATA_SETS_FOLDER+out_2_fn,
+			'february_month.csv',
+			4000000,
+			90,
+		)
+		if False:
+			normalize_data_set(
+				json.load(open(DATA_SETS_FOLDER+'week_0_first_option_cern_4k_bins_data_set.json','rt'))\
+				+ json.load(open(DATA_SETS_FOLDER+'week_1_first_option_cern_4k_bins_data_set.json','rt'))\
+				+ json.load(open(DATA_SETS_FOLDER+'week_2_first_option_cern_4k_bins_data_set.json','rt')),
+				DATA_SETS_FOLDER+'three_weeks_normalized_4k_bins_data_set.json'
+			)
+			split_indexes(
+				json.load(open('three_weeks_normalized_trend_data_set.json','rt')),
+				'three_weeks_train_test_indexes_split_trend.p'
+			)
+
+	if False:
+		external_bin_main(
+			'week_0_first_option_cern_only_read.json',
+			'week_0_first_option_cern_data_set_.json',
+			'january_month_throughput.csv',
+			4000000,
+		)
+		normalize_data_set(
+			json.load(open('week_0_first_option_cern_data_set_FOR_COMPARISON.json','rt')),
+			'week_0_first_option_cern_normalized_data_set_FOR_COMPARISON.json'
+		)
+
+	if True:
+		normalize_filter_split_from_cont_list(
+			[
+				json.load(open(DATA_SETS_FOLDER+out_0_fn,'rt')),
+				json.load(open(DATA_SETS_FOLDER+out_1_fn,'rt')),
+				json.load(open(DATA_SETS_FOLDER+out_2_fn,'rt'))
+			],
+			2000,
+			35,
+			DATA_SETS_FOLDER+'three_weeks_old_split_thp_data_set.json',
+		)
+
+	if False:
+		analyse_unasnwered_querries()
+
+
