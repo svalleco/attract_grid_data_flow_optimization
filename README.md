@@ -19,4 +19,4 @@ Notes:
 -> There are multiple version of functions which solve the same issues. This is because once more data was available hardware constraints had to be overcome through 
 optimization of the code.
 
- 
+Quantum agent paper: Free energy-based reinforcement learning using a quantum processor (https://arxiv.org/abs/1706.00074)
